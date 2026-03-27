@@ -72,6 +72,7 @@ export default function Session() {
   const [copied, setCopied] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState("files");
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
@@ -360,6 +361,7 @@ export default function Session() {
               sessionId={sessionId}
               initialCode={currentSession.code}
               language={currentSession.language}
+              onCursorChange={setCursorPos}
             />
           </div>
 
@@ -394,8 +396,9 @@ export default function Session() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-neutral-500">
-          <span>Ln 1, Col 1</span>
-          <span>Spaces: 2</span>
+          <span>
+            Ln {cursorPos.line}, Col {cursorPos.col}
+          </span>
           <span>UTF-8</span>
           <span style={{ color: langMeta.color }} className="uppercase">
             {currentSession.language}
