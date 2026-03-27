@@ -13,7 +13,7 @@ export default function SearchPanel({ fileSystem, onResultClick, autoFocus = fal
   }, [autoFocus]);
 
   const searchResults = useMemo(() => {
-    if (!query) return [];
+    if (!query) return { hits: [], total: 0 };
 
     const hits = [];
     let count = 0;
