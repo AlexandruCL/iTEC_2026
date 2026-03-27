@@ -4,6 +4,7 @@ import { Send, Sparkles, X, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 
 const SYSTEM_GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
   const [messages, setMessages] = useState([
@@ -15,9 +16,16 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
-  const { geminiApiKey } = useAuthStore();
+  const { aiConfig, isAiConfigExpired, resetAiConfig } = useAuthStore();
 
-  const apiKey = geminiApiKey || SYSTEM_GEMINI_KEY;
+  // Auto-clear expired custom config
+  const expired = aiConfig.useCustom && isAiConfigExpired();
+  if (expired) {
+    resetAiConfig();
+  }
+
+  const effectiveKey = !expired && aiConfig.useCustom && aiConfig.apiKey ? aiConfig.apiKey : SYSTEM_GEMINI_KEY;
+  const effectiveModel = !expired && aiConfig.useCustom && aiConfig.model ? aiConfig.model : DEFAULT_MODEL;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -36,12 +44,12 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
     setLoading(true);
 
     try {
-      if (!apiKey) {
-        throw new Error("No Gemini API key configured. Please add your API key in settings.");
+      if (!effectiveKey) {
+        throw new Error("No API key available. The platform key is missing and no custom key is configured.");
       }
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${effectiveKey}`,
         {
           method: "POST",
           headers: {
@@ -66,7 +74,9 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to get response from Gemini");
+        const errBody = await response.json().catch(() => null);
+        const detail = errBody?.error?.message || `HTTP ${response.status}`;
+        throw new Error(`Gemini API error: ${detail}`);
       }
 
       const data = await response.json();
@@ -124,11 +134,10 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                    message.role === "user"
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.role === "user"
                       ? "bg-primary-500 text-white"
                       : "bg-dark-800 text-dark-100"
-                  }`}
+                    }`}
                 >
                   <p className="text-lg font-extralight whitespace-pre-wrap">{message.content}</p>
                 </div>
@@ -166,9 +175,9 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
                 <Send className="w-5 h-5 text-white" />
               </button>
             </div>
-            {!apiKey && (
+            {!effectiveKey && (
               <p className="mt-2 text-lg text-amber-400">
-                No API key configured. Add your Gemini API key in settings.
+                No API key available. Please configure a custom key in settings.
               </p>
             )}
           </div>

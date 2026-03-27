@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { motion } from "motion/react";
-import { Key, Save, User, Palette, Pencil, Check, X, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Sparkles, Save, User, Palette, Check, Loader2, RotateCcw, ShieldAlert } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useCollaborationStore } from "@/stores/collaborationStore";
 import Header from "@/components/layout/Header";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Card from "@/components/ui/Card";
+import Modal from "@/components/ui/Modal";
 import toast, { Toaster } from "react-hot-toast";
 
 const CURSOR_COLORS = [
@@ -17,23 +18,55 @@ const CURSOR_COLORS = [
 ];
 
 export default function Settings() {
-  const { user, geminiApiKey, setGeminiApiKey, updateDisplayName } = useAuthStore();
+  const { user, aiConfig, setAiConfig, resetAiConfig, updateDisplayName } = useAuthStore();
   const { userColor } = useCollaborationStore();
-  const [apiKey, setApiKey] = useState(geminiApiKey || "");
   const [selectedColor, setSelectedColor] = useState(userColor);
   const [saving, setSaving] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  // AI config local state (mirrors store, committed on save)
+  const [useCustom, setUseCustom] = useState(aiConfig.useCustom || false);
+  const [customApiKey, setCustomApiKey] = useState(aiConfig.apiKey || "");
+  const [customModel, setCustomModel] = useState(aiConfig.model || "gemini-2.5-flash");
 
   const currentDisplayName = user?.user_metadata?.display_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "";
   const [displayName, setDisplayName] = useState(currentDisplayName);
   const [updatingName, setUpdatingName] = useState(false);
 
-  const handleSaveApiKey = () => {
+  const handleSaveAiConfig = () => {
+    if (useCustom && !customApiKey.trim()) {
+      toast.error("Please enter an API key or switch back to the default plan.");
+      return;
+    }
+    // If switching to custom, show disclaimer first
+    if (useCustom) {
+      setShowDisclaimer(true);
+      return;
+    }
+    // Switching to default — save immediately
+    commitAiConfig();
+  };
+
+  const commitAiConfig = () => {
     setSaving(true);
-    setGeminiApiKey(apiKey);
+    setAiConfig({
+      useCustom,
+      apiKey: customApiKey.trim(),
+      model: customModel.trim() || "gemini-2.5-flash",
+      savedAt: useCustom ? Date.now() : null,
+    });
     setTimeout(() => {
       setSaving(false);
-      toast.success("API key saved!");
-    }, 500);
+      toast.success(useCustom ? "Custom AI configuration saved!" : "Using default AI configuration.");
+    }, 400);
+  };
+
+  const handleResetAiConfig = () => {
+    resetAiConfig();
+    setUseCustom(false);
+    setCustomApiKey("");
+    setCustomModel("gemini-2.5-flash");
+    toast.success("Reset to default AI configuration.");
   };
 
   const handleUpdateDisplayName = async () => {
@@ -79,6 +112,7 @@ export default function Settings() {
               <h1 className="text-3xl font-light text-white mb-8">Settings</h1>
 
               <div className="space-y-6">
+                {/* Profile Card */}
                 <Card hover={false}>
                   <div className="flex items-start gap-4 mb-6">
                     <div className="w-10 h-10 rounded-lg bg-dark-700 flex items-center justify-center">
@@ -137,47 +171,133 @@ export default function Settings() {
                   </div>
                 </Card>
 
+                {/* AI Configuration Card */}
                 <Card hover={false}>
                   <div className="flex items-start gap-4 mb-6">
-                    <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                      <Key className="w-5 h-5 text-purple-400" />
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/20 to-indigo-500/20 flex items-center justify-center">
+                      <Sparkles className="w-5 h-5 text-purple-400" />
                     </div>
                     <div>
-                      <h2 className="text-xl font-medium text-white">Gemini API Key</h2>
+                      <h2 className="text-xl font-medium text-white">AI Assistant</h2>
                       <p className="text-lg font-extralight text-dark-400">
-                        Add your own API key for AI assistance (optional)
+                        Configure the AI model powering your code assistant
                       </p>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <Input
-                      type="password"
-                      placeholder="Enter your Gemini API key"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                    />
-                    <p className="text-lg font-extralight text-dark-500">
-                      Get your API key from{" "}
-                      <a
-                        href="https://makersuite.google.com/app/apikey"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary-400 hover:text-primary-300"
+                  <div className="space-y-5">
+                    {/* Default plan badge */}
+                    {!useCustom && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-2 px-4 py-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
                       >
-                        Google AI Studio
-                      </a>
-                    </p>
-                    <Button
-                      icon={Save}
-                      onClick={handleSaveApiKey}
-                      loading={saving}
-                    >
-                      Save API Key
-                    </Button>
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-lg font-extralight text-emerald-300">
+                          Using the free built-in Gemini AI assistant
+                        </span>
+                      </motion.div>
+                    )}
+
+                    {/* Toggle */}
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="ai-custom-toggle" className="text-lg font-medium text-dark-200 cursor-pointer">
+                        Use custom AI configuration
+                      </label>
+                      <button
+                        id="ai-custom-toggle"
+                        role="switch"
+                        aria-checked={useCustom}
+                        onClick={() => setUseCustom(!useCustom)}
+                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                          useCustom ? "bg-purple-500" : "bg-dark-600"
+                        }`}
+                      >
+                        <motion.div
+                          className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md"
+                          animate={{ x: useCustom ? 20 : 0 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Custom config fields */}
+                    <AnimatePresence>
+                      {useCustom && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="space-y-4 pt-1">
+                            <div>
+                              <label className="block text-lg font-medium text-dark-200 mb-2">
+                                API Key
+                              </label>
+                              <Input
+                                type="password"
+                                placeholder="Enter your Gemini API key"
+                                value={customApiKey}
+                                onChange={(e) => setCustomApiKey(e.target.value)}
+                              />
+                              <p className="text-lg font-extralight text-dark-500 mt-1.5">
+                                Get a key from{" "}
+                                <a
+                                  href="https://aistudio.google.com/apikey"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary-400 hover:text-primary-300 transition-colors"
+                                >
+                                  Google AI Studio
+                                </a>
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-lg font-medium text-dark-200 mb-2">
+                                Model
+                              </label>
+                              <Input
+                                type="text"
+                                placeholder="gemini-2.5-flash"
+                                value={customModel}
+                                onChange={(e) => setCustomModel(e.target.value)}
+                              />
+                              <p className="text-lg font-extralight text-dark-500 mt-1.5">
+                                The Gemini model to use (e.g. gemini-2.5-flash, gemini-1.5-pro)
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-3 pt-1">
+                      <Button
+                        icon={Save}
+                        onClick={handleSaveAiConfig}
+                        loading={saving}
+                      >
+                        {useCustom ? "Save Configuration" : "Confirm Default"}
+                      </Button>
+                      {aiConfig.useCustom && (
+                        <button
+                          onClick={handleResetAiConfig}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition-colors text-lg font-extralight"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          Reset to default
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </Card>
 
+                {/* Cursor Color Card */}
                 <Card hover={false}>
                   <div className="flex items-start gap-4 mb-6">
                     <div className="w-10 h-10 rounded-lg bg-primary-500/20 flex items-center justify-center">
@@ -209,6 +329,42 @@ export default function Settings() {
           </div>
         </div>
       </main>
+
+      {/* Disclaimer Modal */}
+      <Modal
+        isOpen={showDisclaimer}
+        onClose={() => setShowDisclaimer(false)}
+        title="Storage Disclaimer"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <ShieldAlert className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+            <p className="text-lg font-extralight text-amber-200 leading-relaxed">
+              Your API key will be stored <strong className="font-medium text-white">locally in your browser</strong> for a maximum of <strong className="font-medium text-white">30 days</strong>. It is never sent to our servers. After 30 days, the key will be automatically cleared and the assistant will revert to the default configuration.
+            </p>
+          </div>
+          <p className="text-lg font-extralight text-dark-400">
+            By confirming, you acknowledge that you are responsible for the security of your own API key.
+          </p>
+          <div className="flex items-center gap-3 pt-2">
+            <Button
+              icon={Check}
+              onClick={() => {
+                setShowDisclaimer(false);
+                commitAiConfig();
+              }}
+            >
+              I Understand, Save
+            </Button>
+            <button
+              onClick={() => setShowDisclaimer(false)}
+              className="px-4 py-2 rounded-lg text-dark-400 hover:text-white hover:bg-dark-700 transition-colors text-lg font-extralight"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

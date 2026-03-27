@@ -2,18 +2,37 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
+const AI_CONFIG_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
       user: null,
       session: null,
       loading: true,
-      geminiApiKey: null,
+      aiConfig: {
+        useCustom: false,
+        apiKey: "",
+        model: "",
+        savedAt: null,
+      },
 
       setUser: (user) => set({ user }),
       setSession: (session) => set({ session }),
       setLoading: (loading) => set({ loading }),
-      setGeminiApiKey: (key) => set({ geminiApiKey: key }),
+      setAiConfig: (config) =>
+        set((state) => ({
+          aiConfig: { ...state.aiConfig, ...config },
+        })),
+      resetAiConfig: () =>
+        set({
+          aiConfig: { useCustom: false, apiKey: "", model: "", savedAt: null },
+        }),
+      isAiConfigExpired: () => {
+        const { aiConfig } = get();
+        if (!aiConfig.useCustom || !aiConfig.savedAt) return false;
+        return Date.now() - aiConfig.savedAt > AI_CONFIG_TTL_MS;
+      },
 
       signInWithEmail: async (email, password) => {
         if (!isSupabaseConfigured() || !supabase) {
@@ -128,12 +147,12 @@ export const useAuthStore = create(
 
       signOut: async () => {
         if (!isSupabaseConfigured() || !supabase) {
-          set({ user: null, session: null, geminiApiKey: null });
+          set({ user: null, session: null, aiConfig: { useCustom: false, apiKey: "", model: "", savedAt: null } });
           return;
         }
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
-        set({ user: null, session: null, geminiApiKey: null });
+        set({ user: null, session: null, aiConfig: { useCustom: false, apiKey: "", model: "", savedAt: null } });
       },
 
       initialize: async () => {
@@ -168,7 +187,7 @@ export const useAuthStore = create(
     }),
     {
       name: "auth-storage",
-      partialize: (state) => ({ geminiApiKey: state.geminiApiKey }),
+      partialize: (state) => ({ aiConfig: state.aiConfig }),
     }
   )
 );
