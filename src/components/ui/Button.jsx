@@ -3,17 +3,22 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
 const variants = {
-  primary: "bg-primary-500 hover:bg-primary-600 text-white",
-  secondary: "bg-dark-700 hover:bg-dark-600 text-white border border-dark-600",
-  ghost: "bg-transparent hover:bg-dark-800 text-dark-200",
-  danger: "bg-red-500 hover:bg-red-600 text-white",
-  github: "bg-[#24292e] hover:bg-[#2f363d] text-white",
+  primary:
+    "bg-accent-500 hover:bg-accent-400 text-neutral-950 font-semibold shadow-sm",
+  secondary:
+    "bg-transparent border border-neutral-700 hover:border-neutral-500 text-neutral-200 hover:text-white",
+  ghost:
+    "bg-transparent hover:bg-neutral-800 text-neutral-400 hover:text-white",
+  danger:
+    "bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20",
+  github:
+    "bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700",
 };
 
 const sizes = {
-  sm: "px-3 py-1.5 text-lg",
-  md: "px-4 py-2 text-lg",
-  lg: "px-6 py-3 text-lg",
+  sm: "px-3.5 py-1.5 text-sm",
+  md: "px-5 py-2.5 text-sm",
+  lg: "px-7 py-3 text-base",
 };
 
 export default function Button({
@@ -29,11 +34,11 @@ export default function Button({
   return (
     <motion.button
       whileHover={{ scale: disabled || loading ? 1 : 1.02 }}
-      whileTap={{ scale: disabled || loading ? 1 : 0.98, y: disabled || loading ? 0 : 1 }}
+      whileTap={{ scale: disabled || loading ? 1 : 0.98 }}
       className={cn(
-        "inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-colors duration-200",
-        "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-dark-900",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center gap-2 rounded-lg transition-all duration-200",
+        "focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:ring-offset-2 focus:ring-offset-neutral-950",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
         variants[variant],
         sizes[size],
         className
@@ -42,7 +47,7 @@ export default function Button({
       {...props}
     >
       {loading ? (
-        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
           <circle
             className="opacity-25"
             cx="12"
@@ -59,9 +64,9 @@ export default function Button({
           />
         </svg>
       ) : Icon ? (
-        <Icon className="w-5 h-5" />
+        <Icon className="w-4 h-4" />
       ) : null}
-      {children}
+      <span className="font-display tracking-tight">{children}</span>
     </motion.button>
   );
 }

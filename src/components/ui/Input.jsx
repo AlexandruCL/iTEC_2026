@@ -5,31 +5,31 @@ const Input = forwardRef(({ className, label, error, icon: Icon, ...props }, ref
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-lg font-medium text-dark-200 mb-2">
+        <label className="block text-sm font-medium text-neutral-400 mb-2 font-display">
           {label}
         </label>
       )}
-      <div className="relative">
+      <div className="relative group">
         {Icon && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-400">
-            <Icon className="w-5 h-5" />
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-accent-500 transition-colors duration-200">
+            <Icon className="w-4 h-4" />
           </div>
         )}
         <input
           ref={ref}
           className={cn(
-            "w-full px-4 py-3 text-lg bg-dark-800 border border-dark-600 rounded-lg",
-            "text-white placeholder-dark-400",
-            "focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent",
+            "w-full px-4 py-3 text-sm bg-neutral-900 border border-neutral-800 rounded-lg",
+            "text-neutral-100 placeholder-neutral-600",
+            "focus:outline-none focus:ring-2 focus:ring-accent-500/30 focus:border-accent-500/50",
             "transition-all duration-200",
-            Icon && "pl-10",
-            error && "border-red-500 focus:ring-red-500",
+            Icon && "pl-11",
+            error && "border-red-500/50 focus:ring-red-500/30",
             className
           )}
           {...props}
         />
       </div>
-      {error && <p className="mt-1 text-lg text-red-400">{error}</p>}
+      {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
     </div>
   );
 });

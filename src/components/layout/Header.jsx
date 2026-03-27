@@ -1,7 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "motion/react";
-import { Code2, LogOut, Settings, User } from "lucide-react";
+import { Code2, LogOut, Settings } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import Button from "@/components/ui/Button";
 
@@ -16,82 +15,65 @@ export default function Header() {
   };
 
   return (
-    <header id="app-header" className="fixed top-0 left-0 right-0 z-40 bg-dark-950/80 backdrop-blur-xl border-b border-dark-800">
-      <div className="max-w-[2400px] mx-auto">
-        <div className="grid grid-cols-12">
-          <div className="col-span-12 px-4 md:col-start-2 md:col-span-10">
-            <div className="flex items-center justify-between h-16">
-              <Link to="/" className="flex items-center gap-2">
-                <motion.div
-                  whileHover={{ rotate: 180 }}
-                  transition={{ duration: 0.3 }}
-                  className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center"
-                >
-                  <Code2 className="w-6 h-6 text-white" />
-                </motion.div>
-                <span className="text-xl font-semibold text-white">CollabCode</span>
-              </Link>
-
-              <nav className="hidden md:flex items-center gap-6">
-                {user ? (
-                  <>
-                    <Link
-                      to="/dashboard"
-                      className="text-lg font-extralight text-dark-300 hover:text-white transition-colors"
-                    >
-                      Dashboard
-                    </Link>
-                    <div className="relative">
-                      <button
-                        onClick={() => setMenuOpen(!menuOpen)}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-dark-800 transition-colors"
-                      >
-                        <div
-                          className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center"
-                        >
-                          <span className="text-lg font-medium text-white">
-                            {user.email?.[0].toUpperCase() || "U"}
-                          </span>
-                        </div>
-                      </button>
-                      {menuOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="absolute right-0 top-full mt-2 w-48 bg-dark-800 border border-dark-700 rounded-xl shadow-xl overflow-hidden"
-                        >
-                          <Link
-                            to="/settings"
-                            className="flex items-center gap-3 px-4 py-3 text-lg text-dark-200 hover:bg-dark-700 transition-colors"
-                            onClick={() => setMenuOpen(false)}
-                          >
-                            <Settings className="w-4 h-4" />
-                            Settings
-                          </Link>
-                          <button
-                            onClick={handleSignOut}
-                            className="flex items-center gap-3 w-full px-4 py-3 text-lg text-red-400 hover:bg-dark-700 transition-colors"
-                          >
-                            <LogOut className="w-4 h-4" />
-                            Sign Out
-                          </button>
-                        </motion.div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Link to="/login">
-                      <Button variant="ghost">Sign In</Button>
-                    </Link>
-                    <Link to="/signup">
-                      <Button>Get Started</Button>
-                    </Link>
-                  </>
-                )}
-              </nav>
+    <header id="app-header" className="fixed top-0 left-0 right-0 z-40 bg-neutral-950/80 backdrop-blur-md border-b border-neutral-800/50">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="flex items-center justify-between h-16">
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <div className="w-8 h-8 rounded-lg bg-accent-500 flex items-center justify-center">
+              <Code2 className="w-4 h-4 text-neutral-950" />
             </div>
-          </div>
+            <span className="text-lg font-semibold text-white font-display tracking-tight">iTECify</span>
+          </Link>
+
+          <nav className="flex items-center gap-6">
+            {user ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  className="text-sm font-medium text-neutral-400 hover:text-white transition-colors"
+                >
+                  Dashboard
+                </Link>
+                <div className="relative">
+                  <button
+                    onClick={() => setMenuOpen(!menuOpen)}
+                    className="w-8 h-8 rounded-full bg-accent-500 flex items-center justify-center text-sm font-bold text-neutral-950 hover:bg-accent-400 transition-colors"
+                  >
+                    {user.email?.[0].toUpperCase() || "U"}
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-neutral-900 border border-neutral-800 rounded-xl shadow-xl overflow-hidden py-1">
+                      <Link
+                        to="/settings"
+                        className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors w-full"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Settings className="w-4 h-4 text-neutral-500" />
+                        Settings
+                      </Link>
+                      <div className="h-px bg-neutral-800 my-0.5" />
+                      <button
+                        onClick={handleSignOut}
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <Link to="/login">
+                  <Button variant="ghost" size="sm">Sign In</Button>
+                </Link>
+                <Link to="/signup">
+                  <Button size="sm">Get Started</Button>
+                </Link>
+              </>
+            )}
+          </nav>
         </div>
       </div>
     </header>

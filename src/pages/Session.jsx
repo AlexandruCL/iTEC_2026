@@ -15,10 +15,6 @@ import {
   GitBranch,
   Bell,
   Settings,
-  PanelLeftClose,
-  PanelLeft,
-  Play,
-  MoreVertical,
   FolderOpen,
   Search,
   Layers,
@@ -51,13 +47,13 @@ function SidebarIcon({ icon: Icon, label, active, onClick }) {
     <button
       onClick={onClick}
       title={label}
-      className={`relative w-12 h-12 flex items-center justify-center transition-colors ${
+      className={`relative w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-150 ${
         active
-          ? "text-white before:absolute before:left-0 before:top-1 before:bottom-1 before:w-0.5 before:bg-primary-400 before:rounded-r"
-          : "text-dark-500 hover:text-dark-300"
+          ? "text-accent-400 bg-accent-500/10"
+          : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"
       }`}
     >
-      <Icon className="w-6 h-6" />
+      <Icon className="w-5 h-5" />
     </button>
   );
 }
@@ -99,7 +95,6 @@ export default function Session() {
     navigate,
   ]);
 
-  // Listen for session deletion on the collaboration channel
   useEffect(() => {
     if (!sessionId || !isSupabaseConfigured()) return;
 
@@ -113,10 +108,7 @@ export default function Session() {
     };
 
     channel.on("broadcast", { event: "session-deleted" }, handleDeleted);
-
-    return () => {
-      // Channel cleanup happens in leaveCollaboration, no separate unsub needed
-    };
+    return () => {};
   }, [sessionId, navigate, leaveCollaboration, collaborators]);
 
   const handleCopyLink = () => {
@@ -131,11 +123,11 @@ export default function Session() {
     return (
       <div
         id="session-loading"
-        className="min-h-screen bg-[#0d1117] flex items-center justify-center"
+        className="min-h-screen bg-neutral-950 flex items-center justify-center"
       >
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
-          <span className="text-lg font-extralight text-dark-400">
+          <div className="w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-neutral-400 font-display">
             Loading session...
           </span>
         </div>
@@ -146,56 +138,67 @@ export default function Session() {
   const langMeta = getLangMeta(currentSession.language);
   const LangIcon = langMeta.icon;
 
+  const toggleSidebar = (tab) => {
+    if (activeSidebarTab === tab && sidebarOpen) {
+      setSidebarOpen(false);
+    } else {
+      setActiveSidebarTab(tab);
+      setSidebarOpen(true);
+    }
+  };
+
   return (
     <div
       id="session-page"
-      className="h-screen bg-[#0d1117] flex flex-col overflow-hidden"
+      className="h-screen bg-neutral-950 flex flex-col overflow-hidden"
     >
-      <Toaster position="top-center" />
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          style: {
+            background: "#18181b",
+            color: "#fafafa",
+            border: "1px solid #27272a",
+          },
+        }}
+      />
 
       {/* Title Bar */}
-      <header className="h-12 bg-[#161b22] border-b border-[#21262d] flex items-center justify-between px-3 select-none flex-shrink-0">
+      <header className="h-12 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between px-3 select-none flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/dashboard")}
-            className="p-1.5 rounded-md hover:bg-[#21262d] transition-colors group"
+            className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4 text-dark-400 group-hover:text-white transition-colors" />
+            <ArrowLeft className="w-4 h-4 text-neutral-400" />
           </button>
 
-          <div className="w-px h-5 bg-[#21262d]" />
+          <div className="w-px h-5 bg-neutral-800" />
 
           <div className="flex items-center gap-2">
             <div
-              className="w-5 h-5 rounded flex items-center justify-center"
-              style={{ backgroundColor: langMeta.color + "22" }}
+              className="w-6 h-6 rounded flex items-center justify-center"
+              style={{ backgroundColor: langMeta.color + "18" }}
             >
               <LangIcon
-                className="w-3 h-3"
+                className="w-3.5 h-3.5"
                 style={{ color: langMeta.color }}
               />
             </div>
-            <h1 className="text-lg font-extralight text-dark-200">
+            <h1 className="text-sm font-medium text-white font-display">
               {currentSession.name}
             </h1>
-            <span className="text-lg font-extralight text-dark-500">/</span>
-            <span
-              className="text-lg font-extralight capitalize"
-              style={{ color: langMeta.color }}
-            >
-              {currentSession.language}
-            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Collaborators pill */}
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#21262d] border border-[#30363d]">
+          {/* Collaborators */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700/50">
             <div className="flex -space-x-1.5">
               {collaborators.slice(0, 4).map((collab) => (
                 <div
                   key={collab.id}
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-medium text-white border border-[#161b22] ring-1 ring-[#161b22]"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-neutral-900"
                   style={{ backgroundColor: collab.color }}
                   title={collab.name}
                 >
@@ -203,33 +206,31 @@ export default function Session() {
                 </div>
               ))}
             </div>
-            <span className="text-lg font-extralight text-dark-400">
-              {collaborators.length} online
+            <span className="text-xs text-neutral-400">
+              {collaborators.length}
             </span>
           </div>
 
           <button
             onClick={handleCopyLink}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#21262d] border border-[#30363d] hover:bg-[#30363d] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 border border-neutral-700/50 hover:bg-neutral-700 transition-colors text-xs"
           >
             {copied ? (
-              <Check className="w-3.5 h-3.5 text-green-400" />
+              <Check className="w-3.5 h-3.5 text-accent-400" />
             ) : (
-              <Copy className="w-3.5 h-3.5 text-dark-400" />
+              <Copy className="w-3.5 h-3.5 text-neutral-400" />
             )}
-            <span className="text-lg font-extralight text-dark-300">
+            <span className="text-neutral-300">
               {copied ? "Copied" : "Share"}
             </span>
           </button>
 
           <button
-            onClick={() => setIsAiChatOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 transition-all shadow-lg shadow-purple-900/20"
+            onClick={() => setIsAiChatOpen(!isAiChatOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-500 hover:bg-accent-400 transition-colors text-xs font-semibold text-neutral-950"
           >
-            <Sparkles className="w-3.5 h-3.5 text-white" />
-            <span className="text-lg font-extralight text-white">
-              AI Assistant
-            </span>
+            <Sparkles className="w-3.5 h-3.5" />
+            AI
           </button>
         </div>
       </header>
@@ -237,62 +238,21 @@ export default function Session() {
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Activity Bar */}
-        <div className="w-12 bg-[#161b22] border-r border-[#21262d] flex flex-col items-center pt-2 pb-2 justify-between flex-shrink-0">
+        <div className="w-12 bg-[#121215] border-r border-neutral-800 flex flex-col items-center py-2 justify-between flex-shrink-0">
           <div className="flex flex-col items-center gap-1">
             <SidebarIcon
               icon={FolderOpen}
               label="Explorer"
               active={activeSidebarTab === "files" && sidebarOpen}
-              onClick={() => {
-                if (activeSidebarTab === "files" && sidebarOpen) {
-                  setSidebarOpen(false);
-                } else {
-                  setActiveSidebarTab("files");
-                  setSidebarOpen(true);
-                }
-              }}
+              onClick={() => toggleSidebar("files")}
             />
             <SidebarIcon
               icon={Search}
               label="Search"
               active={activeSidebarTab === "search" && sidebarOpen}
-              onClick={() => {
-                if (activeSidebarTab === "search" && sidebarOpen) {
-                  setSidebarOpen(false);
-                } else {
-                  setActiveSidebarTab("search");
-                  setSidebarOpen(true);
-                }
-              }}
-            />
-            <SidebarIcon
-              icon={GitBranch}
-              label="Source Control"
-              active={activeSidebarTab === "git" && sidebarOpen}
-              onClick={() => {
-                if (activeSidebarTab === "git" && sidebarOpen) {
-                  setSidebarOpen(false);
-                } else {
-                  setActiveSidebarTab("git");
-                  setSidebarOpen(true);
-                }
-              }}
-            />
-            <SidebarIcon
-              icon={Layers}
-              label="Extensions"
-              active={activeSidebarTab === "extensions" && sidebarOpen}
-              onClick={() => {
-                if (activeSidebarTab === "extensions" && sidebarOpen) {
-                  setSidebarOpen(false);
-                } else {
-                  setActiveSidebarTab("extensions");
-                  setSidebarOpen(true);
-                }
-              }}
+              onClick={() => toggleSidebar("search")}
             />
           </div>
-
           <div className="flex flex-col items-center gap-1">
             <SidebarIcon
               icon={Settings}
@@ -310,36 +270,34 @@ export default function Session() {
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 240, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="bg-[#161b22] border-r border-[#21262d] overflow-hidden flex-shrink-0"
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+              className="bg-[#121215] border-r border-neutral-800 overflow-hidden flex-shrink-0"
             >
               <div className="w-60 h-full flex flex-col">
-                <div className="h-9 flex items-center justify-between px-4">
-                  <span className="text-lg font-extralight text-dark-400 uppercase tracking-wider">
+                <div className="h-9 flex items-center px-4 border-b border-neutral-800">
+                  <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-display">
                     {activeSidebarTab === "files" && "Explorer"}
                     {activeSidebarTab === "search" && "Search"}
-                    {activeSidebarTab === "git" && "Source Control"}
                     {activeSidebarTab === "extensions" && "Extensions"}
                   </span>
                 </div>
 
                 {activeSidebarTab === "files" && (
-                  <div className="flex-1 px-2 py-1 overflow-y-auto">
-                    <div className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-[#1f2937]/50 text-white">
-                      <ChevronRight className="w-3.5 h-3.5 text-dark-400" />
-                      <FolderOpen className="w-3.5 h-3.5 text-primary-400" />
-                      <span className="text-lg font-extralight truncate">
+                  <div className="flex-1 px-2 py-2 overflow-y-auto">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded text-white text-xs">
+                      <ChevronRight className="w-3 h-3 text-neutral-500" />
+                      <FolderOpen className="w-3 h-3 text-accent-400" />
+                      <span className="truncate font-medium">
                         {currentSession.name}
                       </span>
                     </div>
-
-                    <div className="ml-4 mt-1 space-y-0.5">
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#1f6feb22] border-l-2 border-primary-500">
+                    <div className="ml-4 mt-0.5">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-accent-500/10 text-white text-xs">
                         <LangIcon
-                          className="w-3.5 h-3.5"
+                          className="w-3 h-3"
                           style={{ color: langMeta.color }}
                         />
-                        <span className="text-lg font-extralight text-white truncate">
+                        <span className="truncate font-medium">
                           main.{langMeta.label.toLowerCase()}
                         </span>
                       </div>
@@ -348,31 +306,11 @@ export default function Session() {
                 )}
 
                 {activeSidebarTab === "search" && (
-                  <div className="px-3 pt-2">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-[#0d1117] border border-[#30363d]">
-                      <Search className="w-3.5 h-3.5 text-dark-500" />
-                      <span className="text-lg font-extralight text-dark-500">
-                        Search
-                      </span>
+                  <div className="p-3">
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs text-neutral-500">
+                      <Search className="w-3 h-3" />
+                      Search
                     </div>
-                  </div>
-                )}
-
-                {activeSidebarTab === "git" && (
-                  <div className="px-3 pt-2 flex flex-col items-center justify-center h-32 gap-2">
-                    <GitBranch className="w-8 h-8 text-dark-600" />
-                    <span className="text-lg font-extralight text-dark-500 text-center">
-                      No source control providers
-                    </span>
-                  </div>
-                )}
-
-                {activeSidebarTab === "extensions" && (
-                  <div className="px-3 pt-2 flex flex-col items-center justify-center h-32 gap-2">
-                    <Layers className="w-8 h-8 text-dark-600" />
-                    <span className="text-lg font-extralight text-dark-500 text-center">
-                      No extensions installed
-                    </span>
                   </div>
                 )}
               </div>
@@ -383,30 +321,23 @@ export default function Session() {
         {/* Editor Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Tab bar */}
-          <div className="h-9 bg-[#0d1117] border-b border-[#21262d] flex items-center flex-shrink-0">
-            <div className="flex items-center h-full">
-              <div className="flex items-center gap-1.5 px-4 h-full bg-[#161b22] border-r border-[#21262d] border-b-2 border-b-primary-500">
-                <LangIcon
-                  className="w-3.5 h-3.5"
-                  style={{ color: langMeta.color }}
-                />
-                <span className="text-lg font-extralight text-white">
-                  main.{langMeta.label.toLowerCase()}
-                </span>
-              </div>
+          <div className="h-9 bg-[#121215] border-b border-neutral-800 flex items-center flex-shrink-0">
+            <div className="flex items-center gap-1.5 px-4 h-full bg-neutral-950 border-r border-neutral-800 border-t-2 border-t-accent-500 text-xs">
+              <LangIcon
+                className="w-3.5 h-3.5"
+                style={{ color: langMeta.color }}
+              />
+              <span className="text-neutral-200 font-medium">
+                main.{langMeta.label.toLowerCase()}
+              </span>
             </div>
           </div>
 
           {/* Breadcrumb */}
-          <div className="h-6 bg-[#161b22] border-b border-[#21262d] flex items-center px-4 gap-1 flex-shrink-0">
-            <span className="text-lg font-extralight text-dark-400">
-              {currentSession.name}
-            </span>
-            <ChevronRight className="w-3 h-3 text-dark-600" />
-            <span
-              className="text-lg font-extralight"
-              style={{ color: langMeta.color }}
-            >
+          <div className="h-7 bg-neutral-950 border-b border-neutral-800 flex items-center px-4 gap-1.5 flex-shrink-0 text-xs">
+            <span className="text-neutral-500">{currentSession.name}</span>
+            <ChevronRight className="w-3 h-3 text-neutral-600" />
+            <span style={{ color: langMeta.color }}>
               main.{langMeta.label.toLowerCase()}
             </span>
           </div>
@@ -423,32 +354,24 @@ export default function Session() {
       </div>
 
       {/* Status Bar */}
-      <footer className="h-6 bg-[#0d1117] border-t border-[#21262d] flex items-center justify-between px-3 select-none flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            <GitBranch className="w-3.5 h-3.5 text-dark-400" />
-            <span className="text-lg font-extralight text-dark-400">main</span>
+      <footer className="h-7 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between px-3 select-none flex-shrink-0 text-[11px]">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 cursor-pointer hover:bg-neutral-800 py-0.5 px-1.5 rounded transition-colors">
+            <GitBranch className="w-3 h-3 text-neutral-400" />
+            <span className="text-neutral-400">main</span>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-lg font-extralight text-dark-400">
-              {collaborators.length} connected
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent-500" />
+            <span className="text-neutral-400">
+              {collaborators.length} online
             </span>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-lg font-extralight text-dark-400">
-            Ln 1, Col 1
-          </span>
-          <span className="text-lg font-extralight text-dark-400">
-            Spaces: 2
-          </span>
-          <span className="text-lg font-extralight text-dark-400">UTF-8</span>
-          <span
-            className="text-lg font-extralight capitalize"
-            style={{ color: langMeta.color }}
-          >
+        <div className="flex items-center gap-4 text-neutral-500">
+          <span>Ln 1, Col 1</span>
+          <span>Spaces: 2</span>
+          <span>UTF-8</span>
+          <span style={{ color: langMeta.color }} className="uppercase">
             {currentSession.language}
           </span>
         </div>
