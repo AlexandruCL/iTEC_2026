@@ -6,12 +6,15 @@ import { useSessionStore } from "@/stores/sessionStore";
 
 export default function CodeEditor({
   sessionId,
-  initialCode,
-  language = "javascript",
+  fileSystem,
+  activeFile,
+  language = "javascript", // fallback
   onCursorChange,
+  onContentChange,
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
+  const modelsRef = useRef({});
   const decorationsRef = useRef([]);
   const lockDecorationsRef = useRef([]);
   const containerRef = useRef(null);
@@ -33,6 +36,7 @@ export default function CodeEditor({
 
     cursorEntries.forEach(([userId, cursor]) => {
       if (userId === user?.id) return;
+      if (cursor.path !== activeFile) return;
       if (!cursor.lineNumber || !cursor.column) return;
 
       const model = editor.getModel();
@@ -75,6 +79,7 @@ export default function CodeEditor({
 
     lockEntries.forEach(([userId, lock]) => {
       if (userId === user?.id) return;
+      if (lock.path !== activeFile) return;
       if (!lock.lineNumber) return;
 
       const maxLine = model.getLineCount();
@@ -112,6 +117,7 @@ export default function CodeEditor({
     const cursorEntries = Object.entries(cursors);
     cursorEntries.forEach(([userId, cursor]) => {
       if (userId === user?.id) return;
+      if (cursor.path !== activeFile) return;
       if (!cursor.lineNumber) return;
 
       const model = editor.getModel();
@@ -307,6 +313,12 @@ export default function CodeEditor({
 
     monaco.editor.setTheme("collabcode-dark");
 
+    syncModelsWithFileSystem(monaco);
+
+    if (activeFile && modelsRef.current[activeFile]) {
+      editor.setModel(modelsRef.current[activeFile]);
+    }
+
     if (!hasAppendedNewline.current) {
       hasAppendedNewline.current = true;
       const model = editor.getModel();
@@ -393,6 +405,7 @@ export default function CodeEditor({
           .getState()
           .broadcastLineLock(
             currentUser.id,
+            activeFile,
             newLine,
             currentUser.user_metadata?.display_name ||
               currentUser.email?.split("@")[0] ||
@@ -404,6 +417,7 @@ export default function CodeEditor({
         .getState()
         .broadcastCursor(
           currentUser.id,
+          activeFile,
           position.lineNumber,
           position.column,
           currentUser.user_metadata?.display_name ||
@@ -427,6 +441,7 @@ export default function CodeEditor({
         .getState()
         .broadcastLineLock(
           currentUser.id,
+          activeFile,
           null,
           currentUser.user_metadata?.display_name ||
             currentUser.email?.split("@")[0] ||
@@ -456,48 +471,98 @@ export default function CodeEditor({
 
       useCollaborationStore
         .getState()
-        .broadcastChanges(currentUser.id, serializedChanges);
+        .broadcastChanges(currentUser.id, activeFile, serializedChanges);
 
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+      if (onContentChange) {
+        onContentChange(event.changes, editor.getValue());
       }
-      saveTimeoutRef.current = setTimeout(() => {
-        const code = editor.getValue();
-        useSessionStore.getState().updateSessionCode(sessionId, code);
-      }, 1000);
     });
 
     editor.focus();
   };
 
-  useEffect(() => {
-    useCollaborationStore.getState().setOnCodeChanges((changes, senderId) => {
-      const editor = editorRef.current;
-      const monaco = monacoRef.current;
-      if (!editor || !monaco) return;
+  const syncModelsWithFileSystem = useCallback(
+    (monacoInst) => {
+      if (!monacoInst || !fileSystem) return;
+      const currentModels = modelsRef.current;
+      const fsPaths = Object.keys(fileSystem).filter(
+        (p) => fileSystem[p].type === "file",
+      );
 
-      isRemoteRef.current = true;
+      fsPaths.forEach((path) => {
+        if (!currentModels[path]) {
+          const uri = monacoInst.Uri.file(path);
+          let model = monacoInst.editor.getModel(uri);
+          if (!model) {
+            // Monaco will auto-detect language based on extension in URI
+            model = monacoInst.editor.createModel(
+              fileSystem[path].content || "",
+              undefined,
+              uri,
+            );
+          }
+          currentModels[path] = model;
+        }
+      });
+
+      // Cleanup deleted files
+      Object.keys(currentModels).forEach((path) => {
+        if (!fileSystem[path]) {
+          currentModels[path].dispose();
+          delete currentModels[path];
+        }
+      });
+    },
+    [fileSystem],
+  );
+
+  useEffect(() => {
+    if (monacoRef.current) {
+      syncModelsWithFileSystem(monacoRef.current);
+    }
+  }, [fileSystem, syncModelsWithFileSystem]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor && activeFile && modelsRef.current[activeFile]) {
+      editor.setModel(modelsRef.current[activeFile]);
+      editor.focus();
+      updateRemoteCursors();
+      updateLockDecorations();
+      updateCursorNameOverlays();
+    }
+  }, [
+    activeFile,
+    updateRemoteCursors,
+    updateLockDecorations,
+    updateCursorNameOverlays,
+  ]);
+
+  useEffect(() => {
+    useCollaborationStore.getState().setOnCodeChanges((changes, senderId, path) => {
+      const monaco = monacoRef.current;
+      if (!monaco) return;
+
+      const targetModel = modelsRef.current[path];
+      if (!targetModel) return;
 
       try {
-        const model = editor.getModel();
-        if (!model) return;
-
         const edits = changes.map((change) => {
           const safeStartLine = Math.min(
             change.range.startLineNumber,
-            model.getLineCount(),
+            targetModel.getLineCount(),
           );
           const safeEndLine = Math.min(
             change.range.endLineNumber,
-            model.getLineCount(),
+            targetModel.getLineCount(),
           );
           const safeStartCol = Math.min(
             change.range.startColumn,
-            model.getLineMaxColumn(safeStartLine),
+            targetModel.getLineMaxColumn(safeStartLine),
           );
           const safeEndCol = Math.min(
             change.range.endColumn,
-            model.getLineMaxColumn(safeEndLine),
+            targetModel.getLineMaxColumn(safeEndLine),
           );
 
           return {
@@ -512,16 +577,26 @@ export default function CodeEditor({
           };
         });
 
-        editor.executeEdits("remote-collaboration", edits);
+        // apply edits to specific background/foreground model
+        targetModel.pushEditOperations(
+          [],
+          edits,
+          () => null
+        );
       } catch (err) {
         console.error("Failed to apply remote edits:", err);
       }
 
-      requestAnimationFrame(() => {
+      // If changes applied to active editor model, unblock
+      if (activeFile === path) {
+        requestAnimationFrame(() => {
+          isRemoteRef.current = false;
+        });
+      } else {
         isRemoteRef.current = false;
-      });
+      }
     });
-  }, []);
+  }, [activeFile]);
 
   useEffect(() => {
     return () => {
@@ -539,8 +614,6 @@ export default function CodeEditor({
     >
       <Editor
         height="100%"
-        defaultLanguage={language}
-        defaultValue={initialCode}
         theme="vs-dark"
         onMount={handleEditorDidMount}
         loading={

@@ -18,6 +18,8 @@ import {
   FolderOpen,
   Search,
   Layers,
+  X,
+  Plus,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionStore } from "@/stores/sessionStore";
@@ -25,6 +27,7 @@ import { useCollaborationStore } from "@/stores/collaborationStore";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CodeEditor from "@/components/editor/CodeEditor";
+import FileTree from "@/components/editor/FileTree";
 import TerminalPanel from "@/components/editor/TerminalPanel";
 import AiChat from "@/components/ai/AiChat";
 import Button from "@/components/ui/Button";
@@ -32,10 +35,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 const LANGUAGE_ICONS = {
   javascript: { icon: Braces, color: "#f7df1e", label: "JS" },
-  typescript: { icon: Braces, color: "#3178c6", label: "TS" },
   python: { icon: FileCode, color: "#3776ab", label: "PY" },
-  html: { icon: Code2, color: "#e34c26", label: "HTML" },
-  css: { icon: Code2, color: "#264de4", label: "CSS" },
   default: { icon: FileCode, color: "#94a3b8", label: "FILE" },
 };
 
@@ -74,6 +74,51 @@ export default function Session() {
   const [activeSidebarTab, setActiveSidebarTab] = useState("files");
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
+  const [fileSystem, setFileSystem] = useState(null);
+  const [activeFile, setActiveFile] = useState(null);
+  const [openFiles, setOpenFiles] = useState([]);
+
+  useEffect(() => {
+    if (currentSession?.code && !fileSystem) {
+      try {
+        const parsed = JSON.parse(currentSession.code);
+        if (typeof parsed === "object" && parsed !== null) {
+          setFileSystem(parsed);
+          const firstFile = Object.keys(parsed).find(
+            (k) => parsed[k].type === "file",
+          );
+          if (firstFile) {
+            setActiveFile(firstFile);
+            setOpenFiles([firstFile]);
+          }
+        } else {
+          throw new Error("Legacy string format");
+        }
+      } catch (e) {
+        // Migration for legacy string-based sessions
+        const extMap = {
+          javascript: "js",
+          typescript: "ts",
+          python: "py",
+          html: "html",
+          css: "css",
+        };
+        const ext = extMap[currentSession.language] || "txt";
+        const fileName = `/main.${ext}`;
+        const migratedFs = {
+          [fileName]: { type: "file", content: currentSession.code },
+        };
+
+        setFileSystem(migratedFs);
+        setActiveFile(fileName);
+        setOpenFiles([fileName]);
+        useSessionStore
+          .getState()
+          .updateSessionFileSystem(currentSession.id, migratedFs);
+      }
+    }
+  }, [currentSession, fileSystem]);
+
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
 
@@ -97,7 +142,7 @@ export default function Session() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !isSupabaseConfigured()) return;
+    if (!sessionId || !user || !isSupabaseConfigured()) return;
 
     const channel = useCollaborationStore.getState().channel;
     if (!channel) return;
@@ -111,6 +156,147 @@ export default function Session() {
     channel.on("broadcast", { event: "session-deleted" }, handleDeleted);
     return () => {};
   }, [sessionId, navigate, leaveCollaboration, collaborators]);
+
+  useEffect(() => {
+    useCollaborationStore
+      .getState()
+      .setOnFileSystemChange((newFs, senderId) => {
+        setFileSystem(newFs);
+        // Wait, if the active file was deleted, we should handle that.
+        if (activeFile && !newFs[activeFile]) {
+          setActiveFile(null);
+          setOpenFiles((prev) => prev.filter((f) => f !== activeFile));
+        }
+      });
+  }, [activeFile]);
+
+  // FS Mutation handlers
+  const saveFsAndBroadcast = (newFs) => {
+    setFileSystem(newFs);
+    useCollaborationStore.getState().broadcastFileSystemChange(user.id, newFs);
+    useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
+  };
+
+  const isValidPathName = (name) => {
+    if (!name || typeof name !== "string") return false;
+    if (/[<>:"/\\|?*\x00-\x1F]/.test(name) || name === ".." || name === ".")
+      return false;
+    return true;
+  };
+
+  const handleCreateFile = (parentPath, name) => {
+    if (!isValidPathName(name)) return toast.error("Invalid file name!");
+    const path = parentPath === "/" ? `/${name}` : `${parentPath}/${name}`;
+    if (fileSystem[path]) return toast.error("File already exists!");
+    const newFs = { ...fileSystem, [path]: { type: "file", content: "" } };
+
+    // Auto-create parent folders if they dont exist
+    const parts = path.split("/").filter(Boolean);
+    let currentPath = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath += `/${parts[i]}`;
+      if (!newFs[currentPath]) {
+        newFs[currentPath] = { type: "directory" };
+      }
+    }
+
+    saveFsAndBroadcast(newFs);
+    setActiveFile(path);
+    if (!openFiles.includes(path)) setOpenFiles([...openFiles, path]);
+  };
+
+  const handleCreateFolder = (parentPath, name) => {
+    if (!isValidPathName(name)) return toast.error("Invalid folder name!");
+    const path = parentPath === "/" ? `/${name}` : `${parentPath}/${name}`;
+    if (fileSystem[path]) return toast.error("Folder already exists!");
+    const newFs = { ...fileSystem, [path]: { type: "directory" } };
+    saveFsAndBroadcast(newFs);
+  };
+
+  const handleRename = (oldPath, newName) => {
+    if (!isValidPathName(newName)) return toast.error("Invalid name!");
+
+    const parentPath = oldPath.substring(0, oldPath.lastIndexOf("/")) || "/";
+    const newPath =
+      parentPath === "/" ? `/${newName}` : `${parentPath}/${newName}`;
+
+    if (newPath === oldPath) return;
+    if (fileSystem[newPath]) return toast.error("Name already exists!");
+
+    const newFs = { ...fileSystem };
+
+    // Rename all underlying files/folders if directory
+    Object.keys(fileSystem).forEach((key) => {
+      if (key === oldPath || key.startsWith(`${oldPath}/`)) {
+        const replacementKey = key.replace(oldPath, newPath);
+        newFs[replacementKey] = newFs[key];
+        delete newFs[key];
+      }
+    });
+
+    if (activeFile === oldPath || activeFile?.startsWith(`${oldPath}/`)) {
+      const replacementActive = activeFile.replace(oldPath, newPath);
+      setActiveFile(replacementActive);
+      setOpenFiles((prev) =>
+        prev.map((p) => (p === oldPath ? replacementActive : p)),
+      );
+    } else {
+      setOpenFiles((prev) => prev.map((p) => (p === oldPath ? newPath : p)));
+    }
+
+    saveFsAndBroadcast(newFs);
+  };
+
+  const handleDelete = (path) => {
+    const newFs = { ...fileSystem };
+    
+    Object.keys(fileSystem).forEach(key => {
+      if (key === path || key.startsWith(`${path}/`)) {
+        delete newFs[key];
+        setOpenFiles(prev => prev.filter(p => p !== key));
+        if (activeFile === key) setActiveFile(null);
+      }
+    });
+    
+    saveFsAndBroadcast(newFs);
+    toast.success(`${path.split('/').pop()} deleted`);
+  };
+
+  const handleMove = (draggedPath, targetFolderPath) => {
+    const fileName = draggedPath.split("/").pop();
+    const newPath =
+      targetFolderPath === "/"
+        ? `/${fileName}`
+        : `${targetFolderPath}/${fileName}`;
+    if (newPath === draggedPath || fileSystem[newPath]) return;
+
+    const newFs = { ...fileSystem };
+
+    Object.keys(fileSystem).forEach((key) => {
+      if (key === draggedPath || key.startsWith(`${draggedPath}/`)) {
+        const replacementKey = key.replace(draggedPath, newPath);
+        newFs[replacementKey] = newFs[key];
+        delete newFs[key];
+      }
+    });
+
+    if (
+      activeFile === draggedPath ||
+      activeFile?.startsWith(`${draggedPath}/`)
+    ) {
+      const replacementActive = activeFile.replace(draggedPath, newPath);
+      setActiveFile(replacementActive);
+      setOpenFiles((prev) =>
+        prev.map((p) => (p === draggedPath ? replacementActive : p)),
+      );
+    } else {
+      setOpenFiles((prev) =>
+        prev.map((p) => (p === draggedPath ? newPath : p)),
+      );
+    }
+
+    saveFsAndBroadcast(newFs);
+  };
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}/session/${sessionId}`;
@@ -276,6 +462,27 @@ export default function Session() {
           </div>
         </div>
 
+        {/* Terminal panel integration */}
+        <AnimatePresence>
+          {isTerminalOpen && (
+            <TerminalPanel
+              onClose={() => setIsTerminalOpen(false)}
+              isExpanded={!sidebarOpen && !isAiChatOpen}
+            />
+          )}
+        </AnimatePresence>
+
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#18181b",
+              color: "#fafafa",
+              border: "1px solid #27272a",
+            },
+          }}
+        />
+
         {/* Sidebar Panel */}
         <AnimatePresence>
           {sidebarOpen && (
@@ -291,30 +498,25 @@ export default function Session() {
                   <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-display">
                     {activeSidebarTab === "files" && "Explorer"}
                     {activeSidebarTab === "search" && "Search"}
-                    {activeSidebarTab === "extensions" && "Extensions"}
                   </span>
                 </div>
 
-                {activeSidebarTab === "files" && (
-                  <div className="flex-1 px-2 py-2 overflow-y-auto">
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded text-white text-xs">
-                      <ChevronRight className="w-3 h-3 text-neutral-500" />
-                      <FolderOpen className="w-3 h-3 text-accent-400" />
-                      <span className="truncate font-medium">
-                        {currentSession.name}
-                      </span>
-                    </div>
-                    <div className="ml-4 mt-0.5">
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-accent-500/10 text-white text-xs">
-                        <LangIcon
-                          className="w-3 h-3"
-                          style={{ color: langMeta.color }}
-                        />
-                        <span className="truncate font-medium">
-                          main.{langMeta.label.toLowerCase()}
-                        </span>
-                      </div>
-                    </div>
+                {activeSidebarTab === "files" && fileSystem && (
+                  <div className="flex-1 overflow-hidden">
+                    <FileTree
+                      fileSystem={fileSystem}
+                      activeFile={activeFile}
+                      onSelectFile={(path) => {
+                        setActiveFile(path);
+                        if (!openFiles.includes(path))
+                          setOpenFiles([...openFiles, path]);
+                      }}
+                      onCreateFile={handleCreateFile}
+                      onCreateFolder={handleCreateFolder}
+                      onRename={handleRename}
+                      onDelete={handleDelete}
+                      onMove={handleMove}
+                    />
                   </div>
                 )}
 
@@ -334,35 +536,78 @@ export default function Session() {
         {/* Editor Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Tab bar */}
-          <div className="h-9 bg-[#121215] border-b border-neutral-800 flex items-center flex-shrink-0">
-            <div className="flex items-center gap-1.5 px-4 h-full bg-neutral-950 border-r border-neutral-800 border-t-2 border-t-accent-500 text-xs">
-              <LangIcon
-                className="w-3.5 h-3.5"
-                style={{ color: langMeta.color }}
-              />
-              <span className="text-neutral-200 font-medium">
-                main.{langMeta.label.toLowerCase()}
+          <div className="h-9 bg-[#121215] border-b border-neutral-800 flex items-center flex-shrink-0 px-2 gap-1 overflow-x-auto">
+            {openFiles.length === 0 && (
+              <span className="text-xs text-neutral-500 px-2 italic">
+                No files open
               </span>
-            </div>
+            )}
+            {openFiles.map((path) => {
+              const isActive = path === activeFile;
+              const name = path.split("/").pop();
+              return (
+                <div
+                  key={path}
+                  onClick={() => setActiveFile(path)}
+                  className={`flex items-center gap-1.5 px-3 h-full border-r border-l border-t-2 text-xs cursor-pointer group shrink-0 ${
+                    isActive
+                      ? "bg-neutral-950 border-neutral-800 border-t-accent-500 text-neutral-200"
+                      : "bg-[#18181c] border-transparent border-t-transparent text-neutral-500 hover:bg-[#1f1f24]"
+                  }`}
+                >
+                  <span className="font-medium truncate max-w-[120px]">
+                    {name}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const nextOpen = openFiles.filter((p) => p !== path);
+                      setOpenFiles(nextOpen);
+                      if (isActive) setActiveFile(nextOpen[0] || null);
+                    }}
+                    className="p-0.5 rounded-sm hover:bg-neutral-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           {/* Breadcrumb */}
-          <div className="h-7 bg-neutral-950 border-b border-neutral-800 flex items-center px-4 gap-1.5 flex-shrink-0 text-xs">
-            <span className="text-neutral-500">{currentSession.name}</span>
-            <ChevronRight className="w-3 h-3 text-neutral-600" />
-            <span style={{ color: langMeta.color }}>
-              main.{langMeta.label.toLowerCase()}
-            </span>
+          <div className="h-7 bg-neutral-950 border-b border-neutral-800 flex items-center px-4 gap-1.5 flex-shrink-0 text-[11px] text-neutral-500 font-mono tracking-tight">
+            {activeFile
+              ? activeFile.replace(/^\//, "").split("/").join("  >  ")
+              : "No File Selected"}
           </div>
 
           {/* Code editor */}
           <div className="flex-1 overflow-hidden">
-            <CodeEditor
-              sessionId={sessionId}
-              initialCode={currentSession.code}
-              language={currentSession.language}
-              onCursorChange={setCursorPos}
-            />
+            {fileSystem && activeFile ? (
+              <CodeEditor
+                sessionId={sessionId}
+                initialCode={fileSystem[activeFile]?.content || ""}
+                language={currentSession.language}
+                onCursorChange={setCursorPos}
+                activeFile={activeFile}
+                onContentChange={(newContent) => {
+                  const newFs = {
+                    ...fileSystem,
+                    [activeFile]: {
+                      ...fileSystem[activeFile],
+                      content: newContent,
+                    },
+                  };
+                  setFileSystem(newFs);
+                  // CodeEditor will handle broadcast, we only need to save to DB optionally
+                  // Wait, DB save should be debounced.
+                }}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-neutral-600 text-sm">
+                No active file. Select a file from the explorer.
+              </div>
+            )}
           </div>
 
           {/* Terminal Panel */}
