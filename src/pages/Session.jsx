@@ -74,6 +74,7 @@ export default function Session() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState("files");
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const [editorCode, setEditorCode] = useState("");
 
   const [fileSystem, setFileSystem] = useState(null);
   const [activeFile, setActiveFile] = useState(null);
@@ -659,7 +660,7 @@ export default function Session() {
           {/* Terminal Panel */}
           <TerminalPanel
             language={currentSession.language}
-            code={currentSession.code}
+            code={editorCode}
             isOpen={isTerminalOpen}
             onToggle={() => setIsTerminalOpen(false)}
           />
