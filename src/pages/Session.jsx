@@ -73,6 +73,7 @@ export default function Session() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState("files");
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const [editorCode, setEditorCode] = useState("");
 
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
@@ -111,6 +112,10 @@ export default function Session() {
     channel.on("broadcast", { event: "session-deleted" }, handleDeleted);
     return () => {};
   }, [sessionId, navigate, leaveCollaboration, collaborators]);
+
+  useEffect(() => {
+    setEditorCode(currentSession?.code || "");
+  }, [currentSession?.id, currentSession?.code]);
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}/session/${sessionId}`;
@@ -362,13 +367,14 @@ export default function Session() {
               initialCode={currentSession.code}
               language={currentSession.language}
               onCursorChange={setCursorPos}
+              onCodeChange={setEditorCode}
             />
           </div>
 
           {/* Terminal Panel */}
           <TerminalPanel
             language={currentSession.language}
-            code={currentSession.code}
+            code={editorCode}
             isOpen={isTerminalOpen}
             onToggle={() => setIsTerminalOpen(false)}
           />

@@ -7,10 +7,10 @@ import {
   ChevronDown,
   Terminal as TerminalIcon,
   Loader2,
-  X,
 } from "lucide-react";
 
 const RUNNABLE_LANGUAGES = ["javascript", "python"];
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8787";
 
 function formatTimestamp() {
   const now = new Date();
@@ -22,7 +22,7 @@ function formatTimestamp() {
   });
 }
 
-// Simulated built-in commands (until Docker backend is connected)
+// Local helper commands for terminal UX.
 const BUILTIN_COMMANDS = {
   help: () => [
     { text: "Available commands:", type: "system" },
@@ -31,7 +31,8 @@ const BUILTIN_COMMANDS = {
     { text: "  echo <text>   Print text to output", type: "log" },
     { text: "  whoami        Show current user", type: "log" },
     { text: "  date          Show current date/time", type: "log" },
-    { text: "  run           Execute the current editor code", type: "log" },
+    { text: "  run           Execute current editor code", type: "log" },
+    { text: "  stop          Stop current execution", type: "log" },
     { text: "", type: "log" },
     {
       text: "  Other commands will be executed in Docker when the backend is connected.",
@@ -41,9 +42,7 @@ const BUILTIN_COMMANDS = {
   whoami: () => [{ text: "developer@itecify", type: "log" }],
   date: () => [{ text: new Date().toString(), type: "log" }],
   pwd: () => [{ text: "/workspace/project", type: "log" }],
-  ls: () => [
-    { text: "main.js  package.json  node_modules/  README.md", type: "log" },
-  ],
+  ls: () => [{ text: "main.js  main.py  README.md", type: "log" }],
 };
 
 export default function TerminalPanel({ language, code, isOpen, onToggle }) {
@@ -60,12 +59,14 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isRunning, setIsRunning] = useState(false);
   const [panelHeight, setPanelHeight] = useState(240);
+  const [activeExecutionId, setActiveExecutionId] = useState(null);
 
   const inputRef = useRef(null);
   const outputEndRef = useRef(null);
   const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
+  const wsRef = useRef(null);
 
   const isRunnable = RUNNABLE_LANGUAGES.includes(language);
 
@@ -96,64 +97,169 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
     ]);
   }, []);
 
+  const cleanupSocket = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, []);
+
+  const normalizeLanguage = useCallback((value) => {
+    return value;
+  }, []);
+
+  const stopExecution = useCallback(async () => {
+    if (!activeExecutionId) {
+      addLines([{ text: "No active execution to stop", type: "muted" }]);
+      return;
+    }
+
+    try {
+      await fetch(`${BACKEND_URL}/v1/executions/${activeExecutionId}/stop`, {
+        method: "POST",
+      });
+      addLines([{ text: "▸ Stop requested", type: "system" }]);
+    } catch (error) {
+      addLines([
+        {
+          text: `Failed to stop execution: ${error.message}`,
+          type: "error",
+        },
+      ]);
+    }
+  }, [activeExecutionId, addLines]);
+
   const executeCode = useCallback(() => {
     if (!isRunnable) {
       addLines([
-        { text: `⚠ ${language} execution is not supported yet`, type: "warn" },
+        {
+          text: `⚠ ${language} execution is not supported yet. Use JavaScript or Python.`,
+          type: "warn",
+        },
       ]);
+      return;
+    }
+
+    if (isRunning) {
+      addLines([{ text: "Execution already running", type: "warn" }]);
       return;
     }
 
     setIsRunning(true);
     addLines([{ text: `▸ Running ${language}...`, type: "system" }]);
 
-    if (language === "javascript") {
-      setTimeout(() => {
-        const originalLog = console.log;
-        const originalError = console.error;
-        const originalWarn = console.warn;
-        const logs = [];
+    cleanupSocket();
 
-        console.log = (...args) =>
-          logs.push({ type: "log", text: args.map(String).join(" ") });
-        console.error = (...args) =>
-          logs.push({ type: "error", text: args.map(String).join(" ") });
-        console.warn = (...args) =>
-          logs.push({ type: "warn", text: args.map(String).join(" ") });
-
-        try {
-          const fn = new Function(code);
-          fn();
-          if (logs.length === 0) {
-            addLines([{ text: "(no output)", type: "muted" }]);
-          } else {
-            addLines(logs);
-          }
-          addLines([{ text: "▸ Process exited with code 0", type: "system" }]);
-        } catch (err) {
-          if (logs.length > 0) addLines(logs);
-          addLines([
-            { text: `${err.name}: ${err.message}`, type: "error" },
-            { text: "▸ Process exited with code 1", type: "system" },
-          ]);
-        } finally {
-          console.log = originalLog;
-          console.error = originalError;
-          console.warn = originalWarn;
-          setIsRunning(false);
+    fetch(`${BACKEND_URL}/v1/executions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        language: normalizeLanguage(language),
+        code,
+      }),
+    })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body?.error || "Failed to start execution");
         }
-      }, 200);
-    } else if (language === "python") {
-      setTimeout(() => {
-        addLines([
-          { text: "⚠ Python requires a backend Docker runtime.", type: "warn" },
-          { text: "  Connect in Settings → Runtime to enable.", type: "muted" },
-          { text: "▸ Process not started", type: "system" },
-        ]);
+
+        const executionId = body.executionId;
+        setActiveExecutionId(executionId);
+
+        const wsBase = BACKEND_URL.replace(/^http/i, "ws");
+        const ws = new WebSocket(`${wsBase}/v1/executions/${executionId}/stream`);
+        wsRef.current = ws;
+
+        ws.onmessage = (evt) => {
+          let msg;
+          try {
+            msg = JSON.parse(evt.data);
+          } catch {
+            return;
+          }
+
+          if (msg.type === "stdout" || msg.type === "stderr") {
+            const output = (msg.chunk || "").replace(/\r/g, "");
+            const chunks = output.split("\n").filter((line) => line.length > 0);
+            if (chunks.length === 0) {
+              return;
+            }
+            addLines(
+              chunks.map((line) => ({
+                text: line,
+                type: msg.type === "stderr" ? "error" : "log",
+              })),
+            );
+            return;
+          }
+
+          if (msg.type === "scan-report") {
+            addLines([
+              {
+                text: `scan: high=${msg.summary?.high || 0}, medium=${msg.summary?.medium || 0}, low=${msg.summary?.low || 0}`,
+                type: "muted",
+              },
+            ]);
+            return;
+          }
+
+          if (msg.type === "system" && msg.message) {
+            const type = msg.stage === "failed" ? "error" : msg.stage === "blocked" ? "warn" : "system";
+            addLines([{ text: msg.message, type }]);
+          }
+
+          if (msg.type === "run-ended") {
+            addLines([
+              {
+                text: `▸ Process exited with code ${msg.exitCode ?? 1}`,
+                type: msg.exitCode === 0 ? "system" : "error",
+              },
+            ]);
+            setIsRunning(false);
+            setActiveExecutionId(null);
+            cleanupSocket();
+          }
+
+          if (msg.type === "system" && (msg.stage === "failed" || msg.stage === "blocked")) {
+            setIsRunning(false);
+            setActiveExecutionId(null);
+            cleanupSocket();
+          }
+        };
+
+        ws.onerror = () => {
+          addLines([{ text: "Execution stream connection failed", type: "error" }]);
+          setIsRunning(false);
+          setActiveExecutionId(null);
+          cleanupSocket();
+        };
+
+        ws.onclose = () => {
+          if (isRunning) {
+            setIsRunning(false);
+            setActiveExecutionId(null);
+          }
+        };
+      })
+      .catch((error) => {
+        addLines([{ text: `Failed to run: ${error.message}`, type: "error" }]);
         setIsRunning(false);
-      }, 300);
-    }
-  }, [code, language, isRunnable, addLines]);
+        setActiveExecutionId(null);
+      });
+  }, [
+    addLines,
+    cleanupSocket,
+    code,
+    isRunnable,
+    isRunning,
+    language,
+    normalizeLanguage,
+  ]);
 
   const handleCommand = useCallback(
     (rawInput) => {
@@ -182,6 +288,11 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
         return;
       }
 
+      if (cmd === "stop") {
+        stopExecution();
+        return;
+      }
+
       if (cmd === "echo") {
         addLines([{ text: args.join(" "), type: "log" }]);
         return;
@@ -195,16 +306,16 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       // Unknown command — placeholder until Docker backend
       addLines([
         {
-          text: `${cmd}: command will be executed when Docker runtime is connected`,
+          text: `${cmd}: command not supported in single-user terminal yet`,
           type: "warn",
         },
         {
-          text: `  → queued: ${trimmed}`,
+          text: "  Supported commands: help, clear, echo, run, stop",
           type: "muted",
         },
       ]);
     },
-    [addLines, executeCode],
+    [addLines, executeCode, stopExecution],
   );
 
   const handleKeyDown = useCallback(
@@ -239,8 +350,8 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       } else if (e.key === "c" && e.ctrlKey) {
         e.preventDefault();
         if (isRunning) {
-          setIsRunning(false);
           addLines([{ text: "^C", type: "error" }]);
+          stopExecution();
         } else {
           setInputValue("");
         }
@@ -253,6 +364,7 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       handleCommand,
       isRunning,
       addLines,
+      stopExecution,
     ],
   );
 
@@ -285,6 +397,12 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
   );
 
   const handleClear = useCallback(() => setLines([]), []);
+
+  useEffect(() => {
+    return () => {
+      cleanupSocket();
+    };
+  }, [cleanupSocket]);
 
   // Click anywhere in output area → focus input
   const handleOutputClick = useCallback(() => {
@@ -346,15 +464,26 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
             <div className="flex items-center gap-1">
               {/* Run code */}
               {isRunnable && (
-                <button
-                  onClick={executeCode}
-                  disabled={isRunning}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  title={`Run ${language} code`}
-                >
-                  <Play className="w-3 h-3" />
-                  Run
-                </button>
+                <>
+                  <button
+                    onClick={executeCode}
+                    disabled={isRunning}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title={`Run ${language} code`}
+                  >
+                    <Play className="w-3 h-3" />
+                    Run
+                  </button>
+                  <button
+                    onClick={stopExecution}
+                    disabled={!isRunning}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Stop execution"
+                  >
+                    <Square className="w-3 h-3" />
+                    Stop
+                  </button>
+                </>
               )}
 
               {/* Clear */}

@@ -9,6 +9,7 @@ export default function CodeEditor({
   initialCode,
   language = "javascript",
   onCursorChange,
+  onCodeChange,
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -458,6 +459,10 @@ export default function CodeEditor({
         .getState()
         .broadcastChanges(currentUser.id, serializedChanges);
 
+      if (onCodeChange) {
+        onCodeChange(editor.getValue());
+      }
+
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -521,7 +526,7 @@ export default function CodeEditor({
         isRemoteRef.current = false;
       });
     });
-  }, []);
+  }, [onCodeChange]);
 
   useEffect(() => {
     return () => {
