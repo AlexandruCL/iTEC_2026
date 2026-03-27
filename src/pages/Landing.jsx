@@ -1,32 +1,79 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "motion/react";
-import { Code2, Users, Sparkles, Zap, Github, ArrowRight } from "lucide-react";
+import {
+  ArrowRight,
+  Users,
+  Sparkles,
+  Zap,
+  Code2,
+  Terminal,
+  Shield,
+  Globe,
+} from "lucide-react";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import FadeIn from "@/components/ui/FadeIn";
+import Marquee from "@/components/ui/Marquee";
+import StickyScroll from "@/components/ui/StickyScroll";
+import CodeSnippet, {
+  Keyword,
+  Str,
+  Func,
+  Comment,
+  Var,
+  Punct,
+} from "@/components/ui/CodeSnippet";
+import ShapeGrid from "@/components/ui/ShapeGrid";
+import FaultyTerminal from "@/components/ui/FaultyTerminal";
 import { useAuthStore } from "@/stores/authStore";
 
 const features = [
   {
     icon: Users,
-    title: "Real-time Collaboration",
-    description: "See your teammates cursors and edits in real-time. Code together like you are in the same room.",
+    title: "Real-time Cursors",
+    description:
+      "See every teammate's cursor and selection live. No lag, no conflicts — just seamless pair programming at any scale.",
   },
   {
     icon: Sparkles,
-    title: "AI-Powered Assistance",
-    description: "Get intelligent code suggestions, explanations, and debugging help from Gemini AI.",
+    title: "AI Code Assistant",
+    description:
+      "Get context-aware suggestions, instant explanations, and intelligent debugging powered by Gemini AI — right in your editor.",
   },
   {
     icon: Zap,
     title: "Instant Sessions",
-    description: "Create coding sessions in seconds. Share a link and start collaborating immediately.",
+    description:
+      "Spin up a fully-configured coding environment in under 2 seconds. Share a link and start building together immediately.",
   },
   {
-    icon: Code2,
-    title: "Multi-Language Support",
-    description: "JavaScript, TypeScript, Python, HTML, CSS and more. Your editor, your language.",
+    icon: Shield,
+    title: "Secure & Private",
+    description:
+      "End-to-end encrypted sessions with role-based access control. Your code stays yours.",
+  },
+];
+
+const steps = [
+  {
+    num: "01",
+    title: "Create a Session",
+    description:
+      "Choose your language and name your workspace. It takes less than two seconds.",
+  },
+  {
+    num: "02",
+    title: "Share the Link",
+    description:
+      "Send your session URL to teammates. Anyone with the link can join instantly.",
+  },
+  {
+    num: "03",
+    title: "Code Together",
+    description:
+      "Write, debug, and ship code in real-time with AI assistance built directly into the editor.",
   },
 ];
 
@@ -39,177 +86,299 @@ export default function Landing() {
   };
 
   return (
-    <div id="landing-page" className="min-h-screen bg-dark-950">
+    <div id="landing-page" className="min-h-screen bg-neutral-950">
       <Header />
 
-      <main>
-        <section id="hero-section" className="relative pt-32 pb-20 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-primary-500/10 via-transparent to-transparent" />
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary-500/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
+      <main className="pt-16">
+        {/* ═══════════════════════════ HERO + CODE SHOWCASE with grid bg ═══════════════════════════ */}
+        <div className="relative">
+          {/* Animated grid background */}
+          <div className="absolute inset-0 z-0">
+            <ShapeGrid
+              direction="diagonal"
+              speed={0.3}
+              squareSize={50}
+              borderColor="#1a1a1f"
+              hoverFillColor="#10b981"
+              hoverTrailAmount={5}
+            />
+          </div>
 
-          <div className="relative max-w-[2400px] mx-auto">
-            <div className="grid grid-cols-12">
-              <div className="col-span-12 px-4 md:col-start-2 md:col-span-10 text-center">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6 }}
-                >
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-dark-800/50 border border-dark-700 mb-8">
-                    <Sparkles className="w-4 h-4 text-primary-400" />
-                    <span className="text-lg font-extralight text-dark-200">Powered by Gemini AI</span>
-                  </div>
+        {/* ═══════════════════════════ HERO ═══════════════════════════ */}
+        <section
+          id="hero-section"
+          className="relative z-10 pt-12 pb-16 lg:pt-20 lg:pb-24"
+        >
 
-                  <h1 className="text-5xl md:text-7xl lg:text-8xl font-extralight text-white mb-6 max-w-4xl mx-auto">
-                    Code{" "}
-                    <span className="text-gradient">Together</span>
-                    <br />
-                    Build{" "}
-                    <span className="text-gradient">Faster</span>
-                  </h1>
+          <div className="max-w-5xl mx-auto px-6 text-center relative">
+            <FadeIn delay={0.1}>
+              <h1 className="text-5xl sm:text-6xl lg:text-8xl font-bold text-white mb-6 tracking-tight font-display leading-[1.05]">
+                Collaborative Coding
+                <br />
+                <span className="text-gradient">was never easier</span>
+              </h1>
+            </FadeIn>
 
-                  <p className="text-xl md:text-2xl font-extralight text-dark-300 max-w-2xl mx-auto mb-10">
-                    Real-time collaborative coding with AI assistance. See cursors, share sessions, and build amazing things together.
-                  </p>
+            <FadeIn delay={0.2}>
+              <p className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+                Create instant coding sessions, invite your team, and build
+                software together in real-time — with an AI assistant that
+                actually understands your code.
+              </p>
+            </FadeIn>
 
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
-                      Start Coding Free
-                    </Button>
-                    {!user && (
-                      <Link to="/login">
-                        <Button size="lg" variant="secondary" icon={Github}>
-                          Continue with GitHub
-                        </Button>
-                      </Link>
-                    )}
-                  </div>
-                </motion.div>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
+                Start Coding Free
+              </Button>
+              {!user && (
+                <Link to="/login">
+                  <Button size="lg" variant="secondary">
+                    Sign In
+                  </Button>
+                </Link>
+              )}
+            </div>
 
-                <motion.div
-                  initial={{ opacity: 0, y: 40 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.8, delay: 0.3 }}
-                  className="mt-20 relative"
-                >
-                  <div className="rounded-2xl border border-dark-700 bg-dark-900/50 backdrop-blur-sm p-4 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-3 h-3 rounded-full bg-red-500" />
-                      <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                      <div className="w-3 h-3 rounded-full bg-green-500" />
-                      <span className="ml-4 text-lg text-dark-400 font-mono">session.js</span>
-                    </div>
-                    <div className="bg-dark-950 rounded-lg p-6 font-mono text-left overflow-hidden">
-                      <pre className="text-lg">
-                        <code>
-                          <span className="text-purple-400">const</span>{" "}
-                          <span className="text-blue-300">collaboration</span> ={" "}
-                          <span className="text-yellow-300">await</span>{" "}
-                          <span className="text-green-300">createSession</span>
-                          <span className="text-white">(</span>
-                          <span className="text-amber-300">"hackathon-2024"</span>
-                          <span className="text-white">);</span>
-                          {"\n\n"}
-                          <span className="text-gray-500">{"// "}</span>
-                          <span className="text-gray-500">Real-time cursors visible</span>
-                          {"\n"}
-                          <span className="text-purple-400">const</span>{" "}
-                          <span className="text-blue-300">teammates</span> = [
-                          {"\n"}
-                          {"  "}
-                          <span className="text-amber-300">"Alice"</span>,{" "}
-                          <span className="text-green-500 animate-pulse">|</span>
-                          {"\n"}
-                          {"  "}
-                          <span className="text-amber-300">"Bob"</span>,
-                          {"\n"}
-                          {"  "}
-                          <span className="text-amber-300">"Charlie"</span>
-                          {"\n"}
-                          ];
-                        </code>
-                      </pre>
-                    </div>
-                  </div>
-
-                  <div className="absolute -top-4 -right-4 bg-green-500 text-white px-3 py-1 rounded-full text-lg font-medium animate-pulse">
-                    3 collaborating
-                  </div>
-                </motion.div>
-              </div>
+            {/* Marquee */}
+            <div className="mt-20">
+              <Marquee />
             </div>
           </div>
         </section>
 
-        <section id="features-section" className="py-20">
-          <div className="max-w-[2400px] mx-auto">
-            <div className="grid grid-cols-12">
-              <div className="col-span-12 px-4 md:col-start-2 md:col-span-10">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  className="text-center mb-16"
-                >
-                  <h2 className="text-4xl md:text-5xl font-extralight text-white mb-4">
-                    Everything you need to{" "}
-                    <span className="text-gradient">collaborate</span>
-                  </h2>
-                  <p className="text-xl font-extralight text-dark-400 max-w-2xl mx-auto">
-                    Built for teams who want to code together seamlessly
-                  </p>
-                </motion.div>
+        {/* ═══════════════════════════ CODE SHOWCASE ═══════════════════════════ */}
+        <section id="code-section" className="relative z-10 py-20 lg:py-32">
+          <div className="max-w-5xl mx-auto px-6">
+            <FadeIn>
+              <p className="text-xs uppercase tracking-widest text-accent-500 font-semibold mb-4 font-display">
+                Live collaboration
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 font-display tracking-tight">
+                See it in action
+              </h2>
+              <p className="text-neutral-400 mb-12 max-w-lg">
+                Every keystroke syncs instantly. Cursors, selections, and
+                changes — all in real-time across every connected editor.
+              </p>
+            </FadeIn>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {features.map((feature, index) => (
-                    <motion.div
-                      key={feature.title}
-                      initial={{ opacity: 0, y: 20 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true }}
-                      transition={{ delay: index * 0.1 }}
-                      whileHover={{ y: -4 }}
-                      className="p-8 rounded-2xl bg-dark-800/30 border border-dark-700 hover:border-primary-500/50 transition-colors"
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500/20 to-purple-500/20 flex items-center justify-center mb-6">
-                        <feature.icon className="w-6 h-6 text-primary-400" />
-                      </div>
-                      <h3 className="text-2xl font-light text-white mb-3">{feature.title}</h3>
-                      <p className="text-lg font-extralight text-dark-400">{feature.description}</p>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <FadeIn delay={0.2}>
+              <CodeSnippet filename="collaboration.js" className="max-w-3xl">
+                <Keyword>import</Keyword> <Punct>{"{"}</Punct>{" "}
+                <Var>createSession</Var>
+                <Punct>{","}</Punct> <Var>invite</Var> <Punct>{"}"}</Punct>{" "}
+                <Keyword>from</Keyword> <Str>"@itecify/sdk"</Str>
+                <Punct>;</Punct>
+                {"\n"}
+                {"\n"}
+                <Comment>{"// Create a new real-time coding session"}</Comment>
+                {"\n"}
+                <Keyword>const</Keyword> <Var>session</Var> <Punct>=</Punct>{" "}
+                <Keyword>await</Keyword> <Func>createSession</Func>
+                <Punct>({"{"}</Punct>
+                {"\n"}
+                {"  "}
+                <Var>name</Var>
+                <Punct>:</Punct> <Str>"sprint-review"</Str>
+                <Punct>,</Punct>
+                {"\n"}
+                {"  "}
+                <Var>language</Var>
+                <Punct>:</Punct> <Str>"typescript"</Str>
+                <Punct>,</Punct>
+                {"\n"}
+                {"  "}
+                <Var>ai</Var>
+                <Punct>:</Punct> <Keyword>true</Keyword>
+                <Punct>,</Punct>
+                {"\n"}
+                <Punct>{"})"}</Punct>
+                <Punct>;</Punct>
+                {"\n"}
+                {"\n"}
+                <Comment>{"// Invite your team — they join instantly"}</Comment>
+                {"\n"}
+                <Keyword>await</Keyword> <Func>invite</Func>
+                <Punct>(</Punct>
+                <Var>session</Var>
+                <Punct>.</Punct>
+                <Var>id</Var>
+                <Punct>,</Punct> <Punct>[</Punct>
+                {"\n"}
+                {"  "}
+                <Str>"alice@team.dev"</Str>
+                <Punct>,</Punct>
+                {"\n"}
+                {"  "}
+                <Str>"bob@team.dev"</Str>
+                <Punct>,</Punct>
+                {"\n"}
+                <Punct>])</Punct>
+                <Punct>;</Punct>
+                {"\n"}
+                {"\n"}
+                <Func>console</Func>
+                <Punct>.</Punct>
+                <Func>log</Func>
+                <Punct>(</Punct>
+                <Str>{"`Session live → ${session.url}`"}</Str>
+                <Punct>)</Punct>
+                <Punct>;</Punct>
+              </CodeSnippet>
+            </FadeIn>
           </div>
         </section>
+        </div>{/* end grid bg wrapper */}
 
-        <section id="cta-section" className="py-20">
-          <div className="max-w-[2400px] mx-auto">
-            <div className="grid grid-cols-12">
-              <div className="col-span-12 px-4 md:col-start-2 md:col-span-10">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true }}
-                  className="relative rounded-3xl bg-gradient-to-br from-primary-500/20 via-purple-500/20 to-pink-500/20 p-12 md:p-20 text-center overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-dark-900/40 backdrop-blur-sm" />
-                  <div className="relative z-10">
-                    <h2 className="text-4xl md:text-5xl font-extralight text-white mb-6">
-                      Ready to code together?
-                    </h2>
-                    <p className="text-xl font-extralight text-dark-300 max-w-xl mx-auto mb-8">
-                      Join thousands of developers collaborating in real-time with AI assistance.
+        {/* ═══════════════════════════ STICKY FEATURES ═══════════════════════════ */}
+        <section
+          id="features-section"
+          className="py-20 lg:py-32 border-t border-neutral-800/50"
+        >
+          <div className="max-w-6xl mx-auto px-6">
+            <StickyScroll
+              leftContent={
+                <div>
+                  <FadeIn direction="left">
+                    <p className="text-xs uppercase tracking-widest text-accent-500 font-semibold mb-4 font-display">
+                      Platform
                     </p>
-                    <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
-                      Get Started Free
-                    </Button>
+                    <h2 className="text-3xl sm:text-5xl font-bold text-white mb-6 font-display tracking-tight leading-tight">
+                      Why teams choose
+                      <br />
+                      iTECify
+                    </h2>
+                    <p className="text-neutral-400 mb-8 leading-relaxed max-w-sm">
+                      Built for developers who value speed, simplicity, and
+                      seamless collaboration. No friction, just flow.
+                    </p>
+                    <div className="flex items-center gap-3 text-sm text-neutral-500">
+                      <div className="w-2 h-2 rounded-full bg-accent-500" />
+                      Scroll to explore features
+                    </div>
+                  </FadeIn>
+                </div>
+              }
+              rightItems={features.map((feature) => (
+                <Card key={feature.title} className="p-7">
+                  <div className="w-10 h-10 rounded-lg bg-accent-500/10 border border-accent-500/20 flex items-center justify-center mb-5">
+                    <feature.icon className="w-5 h-5 text-accent-400" />
                   </div>
-                </motion.div>
+                  <h3 className="text-lg font-semibold text-white mb-2 font-display tracking-tight">
+                    {feature.title}
+                  </h3>
+                  <p className="text-sm text-neutral-400 leading-relaxed">
+                    {feature.description}
+                  </p>
+                </Card>
+              ))}
+            />
+          </div>
+        </section>
+
+        {/* ═══════════════════════════ HOW IT WORKS ═══════════════════════════ */}
+        <section
+          id="how-it-works"
+          className="py-20 lg:py-32 border-t border-neutral-800/50"
+        >
+          <div className="max-w-5xl mx-auto px-6">
+            <FadeIn>
+              <div className="text-center mb-16">
+                <p className="text-xs uppercase tracking-widest text-accent-500 font-semibold mb-4 font-display">
+                  Workflow
+                </p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 font-display tracking-tight">
+                  Three steps to ship faster
+                </h2>
+                <p className="text-neutral-400 max-w-lg mx-auto">
+                  From idea to production, iTECify removes every barrier between
+                  you and your team.
+                </p>
               </div>
+            </FadeIn>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {steps.map((step, i) => (
+                <FadeIn key={step.num} delay={i * 0.15} direction="up">
+                  <div className="relative">
+                    <span className="text-6xl font-bold text-neutral-800/60 font-display absolute -top-2 -left-1 select-none">
+                      {step.num}
+                    </span>
+                    <div className="pt-12">
+                      <h3 className="text-lg font-semibold text-white mb-2 font-display tracking-tight">
+                        {step.title}
+                      </h3>
+                      <p className="text-sm text-neutral-400 leading-relaxed">
+                        {step.description}
+                      </p>
+                    </div>
+                  </div>
+                </FadeIn>
+              ))}
             </div>
+
+            {/* Mini code snippet for step illustration */}
+            <FadeIn delay={0.3}>
+              <div className="mt-16">
+                <CodeSnippet filename="terminal" className="max-w-lg mx-auto">
+                  <Punct>$</Punct> <Func>itecify</Func> <Var>create</Var>{" "}
+                  <Str>"my-project"</Str> <Punct>--lang</Punct>{" "}
+                  <Str>typescript</Str>
+                  {"\n"}
+                  <Comment>{"→ Session created in 1.2s"}</Comment>
+                  {"\n"}
+                  <Comment>{"→ Share: https://itecify.dev/s/abc123"}</Comment>
+                </CodeSnippet>
+              </div>
+            </FadeIn>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════ CTA ═══════════════════════════ */}
+        <section
+          id="cta-section"
+          className="relative py-20 lg:py-32 border-t border-neutral-800/50 overflow-hidden"
+        >
+          {/* FaultyTerminal background */}
+          <div className="absolute inset-0 z-0 opacity-40">
+            <FaultyTerminal
+              scale={1.2}
+              gridMul={[2, 1]}
+              digitSize={1.5}
+              timeScale={0.2}
+              scanlineIntensity={0.15}
+              glitchAmount={0.5}
+              flickerAmount={0.3}
+              noiseAmp={0.8}
+              chromaticAberration={0}
+              dither={1}
+              curvature={0}
+              tint="#10b981"
+              mouseReact={true}
+              mouseStrength={0.3}
+              pageLoadAnimation={false}
+              brightness={1.2}
+            />
+          </div>
+          {/* Gradient overlay for readability */}
+          <div className="absolute inset-0 z-[1] bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-neutral-950" />
+
+          <div className="relative z-10 max-w-3xl mx-auto px-6">
+            <FadeIn>
+              <div className="text-center">
+                <h2 className="text-3xl sm:text-5xl font-bold text-white mb-4 font-display tracking-tight">
+                  Ready to code together?
+                </h2>
+                <p className="text-neutral-300 max-w-md mx-auto mb-10 leading-relaxed text-lg">
+                  Join thousands of developers shipping faster with real-time
+                  collaboration and AI assistance.
+                </p>
+                <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
+                  Get Started for Free
+                </Button>
+              </div>
+            </FadeIn>
           </div>
         </section>
       </main>

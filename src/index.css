@@ -14,14 +14,19 @@ html {
 
 body {
   font-family: "Inter", system-ui, sans-serif;
-  background-color: #020617;
-  color: #f8fafc;
+  background-color: #09090b;
+  color: #fafafa;
   min-height: 100vh;
 }
 
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -29,22 +34,19 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #484f5844;
-  border-radius: 5px;
-  border: 2px solid transparent;
-  background-clip: content-box;
+  background: #3f3f46;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #484f5888;
-  border: 2px solid transparent;
-  background-clip: content-box;
+  background: #52525b;
 }
 
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
+/* Monaco editor overrides */
 .monaco-editor {
   border-radius: 0 !important;
 }
@@ -54,14 +56,61 @@ body {
 }
 
 .monaco-editor .margin {
-  background: #0d1117 !important;
+  background: #09090b !important;
 }
 
 @layer utilities {
   .text-gradient {
-    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+    background: linear-gradient(135deg, #10b981 0%, #34d399 50%, #6ee7b7 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  .text-gradient-animated {
+    background: linear-gradient(-45deg, #10b981, #34d399, #6ee7b7, #10b981);
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradient-shift 6s ease infinite;
+  }
+
+  .glass-panel {
+    @apply bg-neutral-900/60 backdrop-blur-xl border border-neutral-800 shadow-xl;
+  }
+
+  .glass-panel-heavy {
+    @apply bg-neutral-950/80 backdrop-blur-2xl border border-neutral-800 shadow-2xl;
+  }
+
+  .surface {
+    @apply bg-neutral-900 border border-neutral-800;
+  }
+
+  .surface-raised {
+    background-color: #1e1e21;
+    @apply border border-neutral-700/50;
+  }
+
+  /* Marquee fade masks */
+  .marquee-mask {
+    mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+  }
+
+  /* Code block styling */
+  .code-block {
+    background-color: #121215;
+    @apply border border-neutral-800 rounded-xl font-mono text-sm leading-relaxed;
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
   }
 }

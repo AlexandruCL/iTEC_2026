@@ -144,10 +144,10 @@ export const useSessionStore = create((set, get) => ({
 
 function getDefaultCode(language) {
   const templates = {
-    javascript: `// Welcome to CollabCode!\n// Start coding together in real-time\n\nfunction greet(name) {\n  return \`Hello, \${name}! Welcome to collaborative coding.\`;\n}\n\nconsole.log(greet("Developer"));\n`,
-    typescript: `// Welcome to CollabCode!\n// Start coding together in real-time\n\nfunction greet(name: string): string {\n  return \`Hello, \${name}! Welcome to collaborative coding.\`;\n}\n\nconsole.log(greet("Developer"));\n`,
-    python: `# Welcome to CollabCode!\n# Start coding together in real-time\n\ndef greet(name: str) -> str:\n    return f"Hello, {name}! Welcome to collaborative coding."\n\nprint(greet("Developer"))\n`,
-    html: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>CollabCode</title>\n</head>\n<body>\n  <h1>Welcome to CollabCode!</h1>\n  <p>Start coding together in real-time.</p>\n</body>\n</html>\n`,
+    javascript: `// Welcome to iTECify!\n// Start coding together in real-time\n\nfunction greet(name) {\n  return \`Hello, \${name}! Welcome to collaborative coding.\`;\n}\n\nconsole.log(greet("Developer"));\n`,
+    typescript: `// Welcome to iTECify!\n// Start coding together in real-time\n\nfunction greet(name: string): string {\n  return \`Hello, \${name}! Welcome to collaborative coding.\`;\n}\n\nconsole.log(greet("Developer"));\n`,
+    python: `# Welcome to iTECify!\n# Start coding together in real-time\n\ndef greet(name: str) -> str:\n    return f"Hello, {name}! Welcome to collaborative coding."\n\nprint(greet("Developer"))\n`,
+    html: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>iTECify</title>\n</head>\n<body>\n  <h1>Welcome to iTECify!</h1>\n  <p>Start coding together in real-time.</p>\n</body>\n</html>\n`,
   };
   return templates[language] || templates.javascript;
 }
