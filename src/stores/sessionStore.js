@@ -38,11 +38,15 @@ export const useSessionStore = create((set, get) => ({
 
   createSession: async (userId, name, language = "javascript") => {
     if (!isSupabaseConfigured() || !supabase) {
-      throw new Error("Supabase is not configured. Please connect a Supabase project first.");
+      throw new Error(
+        "Supabase is not configured. Please connect a Supabase project first.",
+      );
     }
     const { sessions, maxSessions } = get();
     if (sessions.length >= maxSessions) {
-      throw new Error(`Maximum ${maxSessions} sessions allowed. Please delete a session first.`);
+      throw new Error(
+        `Maximum ${maxSessions} sessions allowed. Please delete a session first.`,
+      );
     }
 
     set({ loading: true, error: null });
@@ -106,12 +110,12 @@ export const useSessionStore = create((set, get) => ({
     }
   },
 
-  updateSessionCode: async (sessionId, code) => {
+  updateSessionFileSystem: async (sessionId, fileSystem) => {
     if (!isSupabaseConfigured() || !supabase) return;
     try {
       const { error } = await supabase
         .from("sessions")
-        .update({ code, updated_at: new Date().toISOString() })
+        .update({ code: JSON.stringify(fileSystem), updated_at: new Date().toISOString() })
         .eq("id", sessionId);
 
       if (error) throw error;
@@ -149,5 +153,21 @@ function getDefaultCode(language) {
     python: `# Welcome to iTECify!\n# Start coding together in real-time\n\ndef greet(name: str) -> str:\n    return f"Hello, {name}! Welcome to collaborative coding."\n\nprint(greet("Developer"))\n`,
     html: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>iTECify</title>\n</head>\n<body>\n  <h1>Welcome to iTECify!</h1>\n  <p>Start coding together in real-time.</p>\n</body>\n</html>\n`,
   };
-  return templates[language] || templates.javascript;
+
+  const extMap = {
+    javascript: "js",
+    typescript: "ts",
+    python: "py",
+    html: "html",
+    css: "css",
+  };
+  const ext = extMap[language] || "txt";
+  const fileName = `/main.${ext}`;
+  const content = templates[language] || templates.javascript;
+
+  const fs = {
+    [fileName]: { type: "file", content },
+  };
+
+  return JSON.stringify(fs);
 }
