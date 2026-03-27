@@ -141,6 +141,16 @@ export default function Session() {
   }, [currentSession, fileSystem]);
 
   useEffect(() => {
+    if (!fileSystem || !activeFile || !fileSystem[activeFile]) {
+      setEditorCode("");
+      return;
+    }
+
+    const content = fileSystem[activeFile]?.content;
+    setEditorCode(typeof content === "string" ? content : "");
+  }, [fileSystem, activeFile]);
+
+  useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
 
     // Don't re-join if we already have this session loaded
@@ -512,27 +522,6 @@ export default function Session() {
           </div>
         </div>
 
-        {/* Terminal panel integration */}
-        <AnimatePresence>
-          {isTerminalOpen && (
-            <TerminalPanel
-              onClose={() => setIsTerminalOpen(false)}
-              isExpanded={!sidebarOpen && !isAiChatOpen}
-            />
-          )}
-        </AnimatePresence>
-
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: "#18181b",
-              color: "#fafafa",
-              border: "1px solid #27272a",
-            },
-          }}
-        />
-
         {/* Sidebar Panel */}
         <AnimatePresence>
           {sidebarOpen && (
@@ -558,6 +547,8 @@ export default function Session() {
                       activeFile={activeFile}
                       onSelectFile={(path) => {
                         setActiveFile(path);
+                        const content = fileSystem[path]?.content;
+                        setEditorCode(typeof content === "string" ? content : "");
                         if (!openFiles.includes(path))
                           setOpenFiles([...openFiles, path]);
                       }}
@@ -648,6 +639,7 @@ export default function Session() {
                     },
                   };
                   setFileSystem(newFs);
+                  setEditorCode(newContent);
                 }}
               />
             ) : (
