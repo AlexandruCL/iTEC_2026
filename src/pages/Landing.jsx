@@ -104,132 +104,132 @@ export default function Landing() {
             />
           </div>
 
-        {/* ═══════════════════════════ HERO ═══════════════════════════ */}
-        <section
-          id="hero-section"
-          className="relative z-10 pt-12 pb-16 lg:pt-20 lg:pb-24"
-        >
+          {/* ═══════════════════════════ HERO ═══════════════════════════ */}
+          <section
+            id="hero-section"
+            className="relative z-10 pt-12 pb-16 lg:pt-20 lg:pb-24"
+          >
+            <div className="max-w-5xl mx-auto px-6 text-center relative">
+              <FadeIn delay={0.1}>
+                <h1 className="text-5xl sm:text-6xl lg:text-8xl font-bold text-white mb-6 tracking-tight font-display leading-[1.05]">
+                  Collaborative Coding
+                  <br />
+                  <span className="text-gradient">was never easier</span>
+                </h1>
+              </FadeIn>
 
-          <div className="max-w-5xl mx-auto px-6 text-center relative">
-            <FadeIn delay={0.1}>
-              <h1 className="text-5xl sm:text-6xl lg:text-8xl font-bold text-white mb-6 tracking-tight font-display leading-[1.05]">
-                Collaborative Coding
-                <br />
-                <span className="text-gradient">was never easier</span>
-              </h1>
-            </FadeIn>
+              <FadeIn delay={0.2}>
+                <p className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+                  Create instant coding sessions, invite your team, and build
+                  software together in real-time — with an AI assistant that
+                  actually understands your code.
+                </p>
+              </FadeIn>
 
-            <FadeIn delay={0.2}>
-              <p className="text-lg sm:text-xl text-neutral-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-                Create instant coding sessions, invite your team, and build
-                software together in real-time — with an AI assistant that
-                actually understands your code.
-              </p>
-            </FadeIn>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
+                  Start Coding Free
+                </Button>
+                {!user && (
+                  <Link to="/login">
+                    <Button size="lg" variant="secondary">
+                      Sign In
+                    </Button>
+                  </Link>
+                )}
+              </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Button size="lg" icon={ArrowRight} onClick={handleStartCoding}>
-                Start Coding Free
-              </Button>
-              {!user && (
-                <Link to="/login">
-                  <Button size="lg" variant="secondary">
-                    Sign In
-                  </Button>
-                </Link>
-              )}
+              {/* Marquee */}
+              <div className="mt-20">
+                <Marquee />
+              </div>
             </div>
+          </section>
 
-            {/* Marquee */}
-            <div className="mt-20">
-              <Marquee />
+          {/* ═══════════════════════════ CODE SHOWCASE ═══════════════════════════ */}
+          <section id="code-section" className="relative z-10 py-20 lg:py-32">
+            <div className="max-w-5xl mx-auto px-6">
+              <FadeIn>
+                <p className="text-xs uppercase tracking-widest text-accent-500 font-semibold mb-4 font-display">
+                  Live collaboration
+                </p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 font-display tracking-tight">
+                  See it in action
+                </h2>
+                <p className="text-neutral-400 mb-12 max-w-lg">
+                  Every keystroke syncs instantly. Cursors, selections, and
+                  changes — all in real-time across every connected editor.
+                </p>
+              </FadeIn>
+
+              <FadeIn delay={0.2}>
+                <CodeSnippet filename="collaboration.py" className="max-w-3xl">
+                  <Keyword>import</Keyword> <Var>itecify</Var>
+                  {"\n"}
+                  {"\n"}
+                  <Comment>{"# Create a new real-time coding session"}</Comment>
+                  {"\n"}
+                  <Var>session</Var> <Punct>=</Punct> <Keyword>await</Keyword>{" "}
+                  <Var>itecify</Var>
+                  <Punct>.</Punct>
+                  <Func>create_session</Func>
+                  <Punct>(</Punct>
+                  {"\n"}
+                  {"    "}
+                  <Var>name</Var>
+                  <Punct>=</Punct>
+                  <Str>"sprint-review"</Str>
+                  <Punct>,</Punct>
+                  {"\n"}
+                  {"    "}
+                  <Var>language</Var>
+                  <Punct>=</Punct>
+                  <Str>"python"</Str>
+                  <Punct>,</Punct>
+                  {"\n"}
+                  {"    "}
+                  <Var>ai</Var>
+                  <Punct>=</Punct>
+                  <Keyword>True</Keyword>
+                  {"\n"}
+                  <Punct>)</Punct>
+                  {"\n"}
+                  {"\n"}
+                  <Comment>
+                    {"# Invite your team — they join instantly"}
+                  </Comment>
+                  {"\n"}
+                  <Keyword>await</Keyword> <Var>itecify</Var>
+                  <Punct>.</Punct>
+                  <Func>invite</Func>
+                  <Punct>(</Punct>
+                  {"\n"}
+                  {"    "}
+                  <Var>session</Var>
+                  <Punct>.</Punct>
+                  <Var>id</Var>
+                  <Punct>,</Punct>
+                  {"\n"}
+                  {"    "}
+                  <Punct>[</Punct>
+                  <Str>"alex.cristea.laur2004@gmail.com"</Str>
+                  <Punct>,</Punct> <Str>"patric.3pop@gmail.com"</Str>
+                  <Punct>,</Punct> <Str>"ionut7797@gmail.com"</Str>
+                  <Punct>]</Punct>
+                  {"\n"}
+                  <Punct>)</Punct>
+                  {"\n"}
+                  {"\n"}
+                  <Func>print</Func>
+                  <Punct>(</Punct>
+                  <Str>{'f"Session live → {session.url}"'}</Str>
+                  <Punct>)</Punct>
+                </CodeSnippet>
+              </FadeIn>
             </div>
-          </div>
-        </section>
-
-        {/* ═══════════════════════════ CODE SHOWCASE ═══════════════════════════ */}
-        <section id="code-section" className="relative z-10 py-20 lg:py-32">
-          <div className="max-w-5xl mx-auto px-6">
-            <FadeIn>
-              <p className="text-xs uppercase tracking-widest text-accent-500 font-semibold mb-4 font-display">
-                Live collaboration
-              </p>
-              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 font-display tracking-tight">
-                See it in action
-              </h2>
-              <p className="text-neutral-400 mb-12 max-w-lg">
-                Every keystroke syncs instantly. Cursors, selections, and
-                changes — all in real-time across every connected editor.
-              </p>
-            </FadeIn>
-
-            <FadeIn delay={0.2}>
-              <CodeSnippet filename="collaboration.js" className="max-w-3xl">
-                <Keyword>import</Keyword> <Punct>{"{"}</Punct>{" "}
-                <Var>createSession</Var>
-                <Punct>{","}</Punct> <Var>invite</Var> <Punct>{"}"}</Punct>{" "}
-                <Keyword>from</Keyword> <Str>"@itecify/sdk"</Str>
-                <Punct>;</Punct>
-                {"\n"}
-                {"\n"}
-                <Comment>{"// Create a new real-time coding session"}</Comment>
-                {"\n"}
-                <Keyword>const</Keyword> <Var>session</Var> <Punct>=</Punct>{" "}
-                <Keyword>await</Keyword> <Func>createSession</Func>
-                <Punct>({"{"}</Punct>
-                {"\n"}
-                {"  "}
-                <Var>name</Var>
-                <Punct>:</Punct> <Str>"sprint-review"</Str>
-                <Punct>,</Punct>
-                {"\n"}
-                {"  "}
-                <Var>language</Var>
-                <Punct>:</Punct> <Str>"typescript"</Str>
-                <Punct>,</Punct>
-                {"\n"}
-                {"  "}
-                <Var>ai</Var>
-                <Punct>:</Punct> <Keyword>true</Keyword>
-                <Punct>,</Punct>
-                {"\n"}
-                <Punct>{"})"}</Punct>
-                <Punct>;</Punct>
-                {"\n"}
-                {"\n"}
-                <Comment>{"// Invite your team — they join instantly"}</Comment>
-                {"\n"}
-                <Keyword>await</Keyword> <Func>invite</Func>
-                <Punct>(</Punct>
-                <Var>session</Var>
-                <Punct>.</Punct>
-                <Var>id</Var>
-                <Punct>,</Punct> <Punct>[</Punct>
-                {"\n"}
-                {"  "}
-                <Str>"alice@team.dev"</Str>
-                <Punct>,</Punct>
-                {"\n"}
-                {"  "}
-                <Str>"bob@team.dev"</Str>
-                <Punct>,</Punct>
-                {"\n"}
-                <Punct>])</Punct>
-                <Punct>;</Punct>
-                {"\n"}
-                {"\n"}
-                <Func>console</Func>
-                <Punct>.</Punct>
-                <Func>log</Func>
-                <Punct>(</Punct>
-                <Str>{"`Session live → ${session.url}`"}</Str>
-                <Punct>)</Punct>
-                <Punct>;</Punct>
-              </CodeSnippet>
-            </FadeIn>
-          </div>
-        </section>
-        </div>{/* end grid bg wrapper */}
+          </section>
+        </div>
+        {/* end grid bg wrapper */}
 
         {/* ═══════════════════════════ STICKY FEATURES ═══════════════════════════ */}
         <section
@@ -324,7 +324,7 @@ export default function Landing() {
                 <CodeSnippet filename="terminal" className="max-w-lg mx-auto">
                   <Punct>$</Punct> <Func>itecify</Func> <Var>create</Var>{" "}
                   <Str>"my-project"</Str> <Punct>--lang</Punct>{" "}
-                  <Str>typescript</Str>
+                  <Str>python</Str>
                   {"\n"}
                   <Comment>{"→ Session created in 1.2s"}</Comment>
                   {"\n"}

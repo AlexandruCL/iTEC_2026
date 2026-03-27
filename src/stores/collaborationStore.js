@@ -57,6 +57,7 @@ export const useCollaborationStore = create((set, get) => ({
           cursors: {
             ...get().cursors,
             [payload.userId]: {
+              path: payload.path,
               lineNumber: payload.lineNumber,
               column: payload.column,
               color: payload.color,
@@ -76,6 +77,7 @@ export const useCollaborationStore = create((set, get) => ({
             lockedLines: {
               ...get().lockedLines,
               [payload.userId]: {
+                path: payload.path,
                 lineNumber: payload.lineNumber,
                 color: payload.color,
                 name: payload.name,
@@ -88,10 +90,16 @@ export const useCollaborationStore = create((set, get) => ({
         if (payload.userId === user.id) return;
         const cb = get().onCodeChanges;
         if (cb) {
-          cb(payload.changes, payload.userId);
+          cb(payload.changes, payload.userId, payload.path);
         }
       })
-      ;
+      .on("broadcast", { event: "fs-change" }, ({ payload }) => {
+        if (payload.userId === user.id) return;
+        const cb = get().onFileSystemChange;
+        if (cb) {
+          cb(payload.fs, payload.userId);
+        }
+      });
 
     await channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
@@ -119,7 +127,7 @@ export const useCollaborationStore = create((set, get) => ({
     }
   },
 
-  broadcastCursor: (userId, lineNumber, column, name) => {
+  broadcastCursor: (userId, path, lineNumber, column, name) => {
     const { channel, userColor } = get();
     if (channel) {
       channel.send({
@@ -127,6 +135,7 @@ export const useCollaborationStore = create((set, get) => ({
         event: "cursor",
         payload: {
           userId,
+          path,
           lineNumber,
           column,
           color: userColor,
@@ -136,7 +145,7 @@ export const useCollaborationStore = create((set, get) => ({
     }
   },
 
-  broadcastLineLock: (userId, lineNumber, name) => {
+  broadcastLineLock: (userId, path, lineNumber, name) => {
     const { channel, userColor } = get();
     if (channel) {
       channel.send({
@@ -144,6 +153,7 @@ export const useCollaborationStore = create((set, get) => ({
         event: "line-lock",
         payload: {
           userId,
+          path,
           lineNumber,
           color: userColor,
           name,
@@ -152,21 +162,32 @@ export const useCollaborationStore = create((set, get) => ({
     }
   },
 
-  broadcastChanges: (userId, changes) => {
+  broadcastChanges: (userId, path, changes) => {
     const { channel } = get();
     if (channel) {
       channel.send({
         type: "broadcast",
         event: "changes",
-        payload: { userId, changes },
+        payload: { userId, path, changes },
       });
     }
   },
 
-  getLockedLineByOther: (lineNumber, myUserId) => {
+  broadcastFileSystemChange: (userId, fs) => {
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "fs-change",
+        payload: { userId, fs },
+      });
+    }
+  },
+
+  getLockedLineByOther: (path, lineNumber, myUserId) => {
     const { lockedLines } = get();
     for (const [uid, lock] of Object.entries(lockedLines)) {
-      if (uid !== myUserId && lock.lineNumber === lineNumber) {
+      if (uid !== myUserId && lock.path === path && lock.lineNumber === lineNumber) {
         return lock;
       }
     }
@@ -174,6 +195,9 @@ export const useCollaborationStore = create((set, get) => ({
   },
 
   setOnCodeChanges: (callback) => set({ onCodeChanges: callback }),
+
+  onFileSystemChange: null,
+  setOnFileSystemChange: (callback) => set({ onFileSystemChange: callback }),
 
   onSessionDeleted: null,
   setOnSessionDeleted: (callback) => set({ onSessionDeleted: callback }),

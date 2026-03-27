@@ -16,14 +16,19 @@ import toast, { Toaster } from "react-hot-toast";
 
 const LANGUAGES = [
   { value: "javascript", label: "JavaScript" },
-  { value: "typescript", label: "TypeScript" },
   { value: "python", label: "Python" },
-  { value: "html", label: "HTML" },
 ];
 
 export default function Dashboard() {
   const { user } = useAuthStore();
-  const { sessions, loading, fetchSessions, createSession, deleteSession, maxSessions } = useSessionStore();
+  const {
+    sessions,
+    loading,
+    fetchSessions,
+    createSession,
+    deleteSession,
+    maxSessions,
+  } = useSessionStore();
   const navigate = useNavigate();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -50,7 +55,11 @@ export default function Dashboard() {
 
     setIsCreating(true);
     try {
-      const session = await createSession(user.id, sessionName.trim(), sessionLanguage);
+      const session = await createSession(
+        user.id,
+        sessionName.trim(),
+        sessionLanguage,
+      );
       toast.success("Session created!");
       setIsCreateModalOpen(false);
       setSessionName("");
@@ -77,7 +86,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div id="dashboard-page" className="min-h-screen bg-neutral-950 flex flex-col">
+    <div
+      id="dashboard-page"
+      className="min-h-screen bg-neutral-950 flex flex-col"
+    >
       <Toaster
         position="top-center"
         toastOptions={{
@@ -96,7 +108,10 @@ export default function Dashboard() {
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
               <div>
                 <h1 className="text-3xl font-bold text-white mb-1 font-display tracking-tight">
-                  Welcome back{user?.user_metadata?.display_name ? `, ${user.user_metadata.display_name}` : ""}
+                  Welcome back
+                  {user?.user_metadata?.display_name
+                    ? `, ${user.user_metadata.display_name}`
+                    : ""}
                 </h1>
                 <p className="text-sm text-neutral-500">
                   {sessions.length} of {maxSessions} sessions used
@@ -114,15 +129,21 @@ export default function Dashboard() {
 
           {!isSupabaseConfigured() && (
             <FadeIn delay={0.1}>
-              <Card hover={false} className="mb-8 border-amber-500/20 bg-amber-500/5">
+              <Card
+                hover={false}
+                className="mb-8 border-amber-500/20 bg-amber-500/5"
+              >
                 <div className="flex items-start gap-4">
                   <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
                     <Database className="w-4 h-4 text-amber-400" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-white mb-1 font-display">Connect Supabase</h3>
+                    <h3 className="text-sm font-semibold text-white mb-1 font-display">
+                      Connect Supabase
+                    </h3>
                     <p className="text-sm text-neutral-400 leading-relaxed">
-                      To create and manage coding sessions, connect a Supabase project via your IDE.
+                      To create and manage coding sessions, connect a Supabase
+                      project via your IDE.
                     </p>
                   </div>
                 </div>
@@ -132,9 +153,14 @@ export default function Dashboard() {
 
           {sessions.length === 0 && isSupabaseConfigured() && !loading ? (
             <FadeIn delay={0.1}>
-              <Card hover={false} className="text-center py-16 border-dashed border-2 border-neutral-800 bg-transparent">
+              <Card
+                hover={false}
+                className="text-center py-16 border-dashed border-2 border-neutral-800 bg-transparent"
+              >
                 <Code2 className="w-10 h-10 text-neutral-700 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-white mb-2 font-display">No sessions yet</h3>
+                <h3 className="text-lg font-semibold text-white mb-2 font-display">
+                  No sessions yet
+                </h3>
                 <p className="text-sm text-neutral-500 mb-6">
                   Create your first session and start collaborating.
                 </p>
@@ -187,7 +213,9 @@ export default function Dashboard() {
                         <div className="flex items-center gap-2 text-neutral-500">
                           <Clock className="w-3.5 h-3.5" />
                           <span className="text-xs">
-                            {formatDate(session.updated_at || session.created_at)}
+                            {formatDate(
+                              session.updated_at || session.created_at,
+                            )}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 text-neutral-500">
@@ -229,7 +257,11 @@ export default function Dashboard() {
               className="w-full px-4 py-3 text-sm bg-neutral-900 border border-neutral-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-accent-500/30 appearance-none"
             >
               {LANGUAGES.map((lang) => (
-                <option key={lang.value} value={lang.value} className="bg-neutral-900">
+                <option
+                  key={lang.value}
+                  value={lang.value}
+                  className="bg-neutral-900"
+                >
                   {lang.label}
                 </option>
               ))}
