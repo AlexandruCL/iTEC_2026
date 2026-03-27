@@ -586,10 +586,9 @@ export default function Session() {
             {fileSystem && activeFile ? (
               <CodeEditor
                 sessionId={sessionId}
-                initialCode={fileSystem[activeFile]?.content || ""}
-                language={currentSession.language}
-                onCursorChange={setCursorPos}
+                fileSystem={fileSystem}
                 activeFile={activeFile}
+                onCursorChange={setCursorPos}
                 onContentChange={(newContent) => {
                   const newFs = {
                     ...fileSystem,
@@ -599,8 +598,6 @@ export default function Session() {
                     },
                   };
                   setFileSystem(newFs);
-                  // CodeEditor will handle broadcast, we only need to save to DB optionally
-                  // Wait, DB save should be debounced.
                 }}
               />
             ) : (
