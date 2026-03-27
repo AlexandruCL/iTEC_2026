@@ -176,7 +176,14 @@ export const useAuthStore = create(
             } else if (event === "SIGNED_OUT") {
               set({ user: null, session: null, loading: false });
             } else if (event === "TOKEN_REFRESHED" && session) {
-              set({ user: session.user, session });
+              // Only update session token, avoid replacing user reference
+              // to prevent unnecessary re-renders of protected routes
+              const currentUser = get().user;
+              if (currentUser?.id !== session.user?.id) {
+                set({ user: session.user, session });
+              } else {
+                set({ session });
+              }
             }
           });
         } catch (error) {
