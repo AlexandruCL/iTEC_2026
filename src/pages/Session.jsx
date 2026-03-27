@@ -25,6 +25,7 @@ import { useCollaborationStore } from "@/stores/collaborationStore";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CodeEditor from "@/components/editor/CodeEditor";
+import TerminalPanel from "@/components/editor/TerminalPanel";
 import AiChat from "@/components/ai/AiChat";
 import Button from "@/components/ui/Button";
 import toast, { Toaster } from "react-hot-toast";
@@ -67,33 +68,33 @@ export default function Session() {
     useCollaborationStore();
 
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState("files");
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   useEffect(() => {
-    if (sessionId && user && isSupabaseConfigured()) {
-      joinSession(sessionId)
-        .then(() => {
-          joinCollaboration(sessionId, user);
-        })
-        .catch(() => {
-          toast.error("Failed to join session");
-          navigate("/dashboard");
-        });
-    }
+    if (!sessionId || !user || !isSupabaseConfigured()) return;
+
+    // Don't re-join if we already have this session loaded
+    const store = useSessionStore.getState();
+    if (store.currentSession?.id === sessionId) return;
+
+    joinSession(sessionId)
+      .then(() => {
+        joinCollaboration(sessionId, user);
+      })
+      .catch(() => {
+        toast.error("Failed to join session");
+        navigate("/dashboard");
+      });
 
     return () => {
       leaveCollaboration();
     };
-  }, [
-    sessionId,
-    user,
-    joinSession,
-    joinCollaboration,
-    leaveCollaboration,
-    navigate,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId || !isSupabaseConfigured()) return;
@@ -226,6 +227,18 @@ export default function Session() {
           </button>
 
           <button
+            onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors text-xs font-medium ${
+              isTerminalOpen
+                ? "bg-neutral-800 border-neutral-700 text-white"
+                : "bg-transparent border-neutral-700/50 text-neutral-400 hover:text-white hover:border-neutral-600"
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            Terminal
+          </button>
+
+          <button
             onClick={() => setIsAiChatOpen(!isAiChatOpen)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-500 hover:bg-accent-400 transition-colors text-xs font-semibold text-neutral-950"
           >
@@ -348,18 +361,29 @@ export default function Session() {
               sessionId={sessionId}
               initialCode={currentSession.code}
               language={currentSession.language}
+              onCursorChange={setCursorPos}
             />
           </div>
+
+          {/* Terminal Panel */}
+          <TerminalPanel
+            language={currentSession.language}
+            code={currentSession.code}
+            isOpen={isTerminalOpen}
+            onToggle={() => setIsTerminalOpen(false)}
+          />
         </div>
+
+        <AiChat
+          isOpen={isAiChatOpen}
+          onClose={() => setIsAiChatOpen(false)}
+          code={currentSession.code}
+        />
       </div>
 
       {/* Status Bar */}
       <footer className="h-7 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between px-3 select-none flex-shrink-0 text-[11px]">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 cursor-pointer hover:bg-neutral-800 py-0.5 px-1.5 rounded transition-colors">
-            <GitBranch className="w-3 h-3 text-neutral-400" />
-            <span className="text-neutral-400">main</span>
-          </div>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-accent-500" />
             <span className="text-neutral-400">
@@ -368,20 +392,15 @@ export default function Session() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-neutral-500">
-          <span>Ln 1, Col 1</span>
-          <span>Spaces: 2</span>
+          <span>
+            Ln {cursorPos.line}, Col {cursorPos.col}
+          </span>
           <span>UTF-8</span>
           <span style={{ color: langMeta.color }} className="uppercase">
             {currentSession.language}
           </span>
         </div>
       </footer>
-
-      <AiChat
-        isOpen={isAiChatOpen}
-        onClose={() => setIsAiChatOpen(false)}
-        code={currentSession.code}
-      />
     </div>
   );
 }

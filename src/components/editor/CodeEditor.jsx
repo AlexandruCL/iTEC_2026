@@ -8,6 +8,7 @@ export default function CodeEditor({
   sessionId,
   initialCode,
   language = "javascript",
+  onCursorChange,
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -51,12 +52,11 @@ export default function CodeEditor({
             monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
         },
       });
-
     });
 
     decorationsRef.current = editor.deltaDecorations(
       decorationsRef.current,
-      newDecorations
+      newDecorations,
     );
 
     updateCursorNameOverlays();
@@ -94,7 +94,7 @@ export default function CodeEditor({
 
     lockDecorationsRef.current = editor.deltaDecorations(
       lockDecorationsRef.current,
-      newDecorations
+      newDecorations,
     );
   }, [lockedLines, user?.id]);
 
@@ -105,7 +105,9 @@ export default function CodeEditor({
     const container = containerRef.current;
     if (!container) return;
 
-    container.querySelectorAll(".remote-cursor-name-overlay").forEach((el) => el.remove());
+    container
+      .querySelectorAll(".remote-cursor-name-overlay")
+      .forEach((el) => el.remove());
 
     const cursorEntries = Object.entries(cursors);
     cursorEntries.forEach(([userId, cursor]) => {
@@ -121,7 +123,9 @@ export default function CodeEditor({
 
       const topPx = editor.getTopForLineNumber(line) - editor.getScrollTop();
       const editorLayout = editor.getLayoutInfo();
-      const lineHeight = editor.getOption(monacoRef.current.editor.EditorOption.lineHeight);
+      const lineHeight = editor.getOption(
+        monacoRef.current.editor.EditorOption.lineHeight,
+      );
 
       const overlay = document.createElement("div");
       overlay.className = "remote-cursor-name-overlay";
@@ -378,27 +382,38 @@ export default function CodeEditor({
         return;
       }
 
-      lastValidPositionRef.current = { lineNumber: newLine, column: position.column };
+      lastValidPositionRef.current = {
+        lineNumber: newLine,
+        column: position.column,
+      };
 
       if (currentLineRef.current !== newLine) {
         currentLineRef.current = newLine;
-        useCollaborationStore.getState().broadcastLineLock(
-          currentUser.id,
-          newLine,
-          currentUser.user_metadata?.display_name ||
-            currentUser.email?.split("@")[0] ||
-            "Anonymous"
-        );
+        useCollaborationStore
+          .getState()
+          .broadcastLineLock(
+            currentUser.id,
+            newLine,
+            currentUser.user_metadata?.display_name ||
+              currentUser.email?.split("@")[0] ||
+              "Anonymous",
+          );
       }
 
-      useCollaborationStore.getState().broadcastCursor(
-        currentUser.id,
-        position.lineNumber,
-        position.column,
-        currentUser.user_metadata?.display_name ||
-          currentUser.email?.split("@")[0] ||
-          "Anonymous"
-      );
+      useCollaborationStore
+        .getState()
+        .broadcastCursor(
+          currentUser.id,
+          position.lineNumber,
+          position.column,
+          currentUser.user_metadata?.display_name ||
+            currentUser.email?.split("@")[0] ||
+            "Anonymous",
+        );
+
+      if (onCursorChange) {
+        onCursorChange({ line: position.lineNumber, col: position.column });
+      }
     });
 
     editor.onDidBlurEditorWidget(() => {
@@ -408,13 +423,15 @@ export default function CodeEditor({
       currentLineRef.current = null;
       lastValidPositionRef.current = null;
 
-      useCollaborationStore.getState().broadcastLineLock(
-        currentUser.id,
-        null,
-        currentUser.user_metadata?.display_name ||
-          currentUser.email?.split("@")[0] ||
-          "Anonymous"
-      );
+      useCollaborationStore
+        .getState()
+        .broadcastLineLock(
+          currentUser.id,
+          null,
+          currentUser.user_metadata?.display_name ||
+            currentUser.email?.split("@")[0] ||
+            "Anonymous",
+        );
     });
 
     editor.onDidChangeModelContent((event) => {
@@ -468,19 +485,19 @@ export default function CodeEditor({
         const edits = changes.map((change) => {
           const safeStartLine = Math.min(
             change.range.startLineNumber,
-            model.getLineCount()
+            model.getLineCount(),
           );
           const safeEndLine = Math.min(
             change.range.endLineNumber,
-            model.getLineCount()
+            model.getLineCount(),
           );
           const safeStartCol = Math.min(
             change.range.startColumn,
-            model.getLineMaxColumn(safeStartLine)
+            model.getLineMaxColumn(safeStartLine),
           );
           const safeEndCol = Math.min(
             change.range.endColumn,
-            model.getLineMaxColumn(safeEndLine)
+            model.getLineMaxColumn(safeEndLine),
           );
 
           return {
@@ -488,7 +505,7 @@ export default function CodeEditor({
               safeStartLine,
               safeStartCol,
               safeEndLine,
-              safeEndCol
+              safeEndCol,
             ),
             text: change.text,
             forceMoveMarkers: true,
