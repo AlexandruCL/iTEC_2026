@@ -384,10 +384,6 @@ export default function Session() {
       {/* Status Bar */}
       <footer className="h-7 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between px-3 select-none flex-shrink-0 text-[11px]">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 cursor-pointer hover:bg-neutral-800 py-0.5 px-1.5 rounded transition-colors">
-            <GitBranch className="w-3 h-3 text-neutral-400" />
-            <span className="text-neutral-400">main</span>
-          </div>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-accent-500" />
             <span className="text-neutral-400">
