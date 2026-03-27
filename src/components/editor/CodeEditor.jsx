@@ -9,6 +9,7 @@ export default function CodeEditor({
   fileSystem,
   activeFile,
   language = "javascript", // fallback
+  navigationTarget,
   onCursorChange,
   onContentChange,
 }) {
@@ -17,12 +18,19 @@ export default function CodeEditor({
   const modelsRef = useRef({});
   const decorationsRef = useRef([]);
   const lockDecorationsRef = useRef([]);
+  const searchDecorationRef = useRef([]);
   const containerRef = useRef(null);
   const saveTimeoutRef = useRef(null);
   const isRemoteRef = useRef(false);
   const currentLineRef = useRef(null);
   const hasAppendedNewline = useRef(false);
   const lastValidPositionRef = useRef(null);
+  const propsRef = useRef({ activeFile, onContentChange, onCursorChange });
+
+  useEffect(() => {
+    propsRef.current = { activeFile, onContentChange, onCursorChange };
+  }, [activeFile, onContentChange, onCursorChange]);
+
   const { user } = useAuthStore();
   const { cursors, lockedLines } = useCollaborationStore();
 
@@ -247,6 +255,14 @@ export default function CodeEditor({
       `;
     });
 
+    css += `
+      .search-match-highlight {
+        background-color: rgba(234, 189, 58, 0.4);
+        border-radius: 2px;
+        transition: background-color 0.5s ease;
+      }
+    `;
+
     styleEl.textContent = css;
 
     return () => {};
@@ -405,7 +421,7 @@ export default function CodeEditor({
           .getState()
           .broadcastLineLock(
             currentUser.id,
-            activeFile,
+            propsRef.current.activeFile,
             newLine,
             currentUser.user_metadata?.display_name ||
               currentUser.email?.split("@")[0] ||
@@ -417,7 +433,7 @@ export default function CodeEditor({
         .getState()
         .broadcastCursor(
           currentUser.id,
-          activeFile,
+          propsRef.current.activeFile,
           position.lineNumber,
           position.column,
           currentUser.user_metadata?.display_name ||
@@ -425,8 +441,12 @@ export default function CodeEditor({
             "Anonymous",
         );
 
-      if (onCursorChange) {
-        onCursorChange({ line: position.lineNumber, col: position.column });
+      if (propsRef.current.onCursorChange) {
+        propsRef.current.onCursorChange({
+          route: propsRef.current.activeFile,
+          lineNumber: position.lineNumber,
+          column: Math.max(position.column - 1, 0),
+        });
       }
     });
 
@@ -441,7 +461,7 @@ export default function CodeEditor({
         .getState()
         .broadcastLineLock(
           currentUser.id,
-          activeFile,
+          propsRef.current.activeFile,
           null,
           currentUser.user_metadata?.display_name ||
             currentUser.email?.split("@")[0] ||
@@ -456,6 +476,8 @@ export default function CodeEditor({
 
       const currentUser = useAuthStore.getState().user;
       if (!currentUser) return;
+
+      const { activeFile, onContentChange } = propsRef.current;
 
       const serializedChanges = event.changes.map((change) => ({
         rangeOffset: change.rangeOffset,
@@ -597,6 +619,46 @@ export default function CodeEditor({
       }
     });
   }, [activeFile]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco || !navigationTarget) return;
+
+    const { path, line, column, length } = navigationTarget;
+
+    if (activeFile === path) {
+      requestAnimationFrame(() => {
+         editor.revealLineInCenter(line);
+         editor.setPosition({
+            lineNumber: line,
+            column: column
+         });
+         
+         searchDecorationRef.current = editor.deltaDecorations(
+           searchDecorationRef.current,
+           [{
+              range: new monaco.Range(
+                 line,
+                 column,
+                 line,
+                 column + length
+              ),
+              options: {
+                 className: 'search-match-highlight',
+                 isWholeLine: false,
+              }
+           }]
+         );
+         
+         setTimeout(() => {
+             if (editorRef.current) {
+                searchDecorationRef.current = editorRef.current.deltaDecorations(searchDecorationRef.current, []);
+             }
+         }, 1500);
+      });
+    }
+  }, [navigationTarget, activeFile]);
 
   useEffect(() => {
     return () => {

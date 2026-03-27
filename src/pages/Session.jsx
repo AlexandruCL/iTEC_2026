@@ -28,6 +28,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CodeEditor from "@/components/editor/CodeEditor";
 import FileTree from "@/components/editor/FileTree";
+import SearchPanel from "@/components/editor/SearchPanel";
 import TerminalPanel from "@/components/editor/TerminalPanel";
 import AiChat from "@/components/ai/AiChat";
 import Button from "@/components/ui/Button";
@@ -77,12 +78,31 @@ export default function Session() {
   const [fileSystem, setFileSystem] = useState(null);
   const [activeFile, setActiveFile] = useState(null);
   const [openFiles, setOpenFiles] = useState([]);
+  const [navigationTarget, setNavigationTarget] = useState(null);
+
+  // Reset local state when navigating between different sessions
+  useEffect(() => {
+    setFileSystem(null);
+    setActiveFile(null);
+    setOpenFiles([]);
+    setNavigationTarget(null);
+  }, [sessionId]);
 
   useEffect(() => {
-    if (currentSession?.code && !fileSystem) {
+    if (currentSession?.code && currentSession.id === sessionId && !fileSystem) {
       try {
         const parsed = JSON.parse(currentSession.code);
         if (typeof parsed === "object" && parsed !== null) {
+          // Rescue any corrupted files with array-based contents due to the previous event bug
+          Object.keys(parsed).forEach(key => {
+             if (parsed[key].type === "file" && typeof parsed[key].content !== "string") {
+                 let fallback = "";
+                 if (Array.isArray(parsed[key].content) && parsed[key].content.length > 0 && parsed[key].content[0].text) {
+                     fallback = parsed[key].content[0].text; // Attempt weak rescue
+                 }
+                 parsed[key].content = fallback;
+             }
+          });
           setFileSystem(parsed);
           const firstFile = Object.keys(parsed).find(
             (k) => parsed[k].type === "file",
@@ -140,6 +160,25 @@ export default function Session() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Toggle sidebar
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        setSidebarOpen((prev) => !prev);
+      }
+      // Global Search
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSidebarOpen(true);
+        setActiveSidebarTab("search");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
@@ -237,12 +276,14 @@ export default function Session() {
     if (activeFile === oldPath || activeFile?.startsWith(`${oldPath}/`)) {
       const replacementActive = activeFile.replace(oldPath, newPath);
       setActiveFile(replacementActive);
-      setOpenFiles((prev) =>
-        prev.map((p) => (p === oldPath ? replacementActive : p)),
-      );
-    } else {
-      setOpenFiles((prev) => prev.map((p) => (p === oldPath ? newPath : p)));
     }
+    setOpenFiles((prev) =>
+      prev.map((p) =>
+        p === oldPath || p.startsWith(`${oldPath}/`)
+          ? p.replace(oldPath, newPath)
+          : p
+      )
+    );
 
     saveFsAndBroadcast(newFs);
   };
@@ -286,16 +327,24 @@ export default function Session() {
     ) {
       const replacementActive = activeFile.replace(draggedPath, newPath);
       setActiveFile(replacementActive);
-      setOpenFiles((prev) =>
-        prev.map((p) => (p === draggedPath ? replacementActive : p)),
-      );
-    } else {
-      setOpenFiles((prev) =>
-        prev.map((p) => (p === draggedPath ? newPath : p)),
-      );
     }
+    setOpenFiles((prev) =>
+      prev.map((p) =>
+        p === draggedPath || p.startsWith(`${draggedPath}/`)
+          ? p.replace(draggedPath, newPath)
+          : p
+      )
+    );
 
     saveFsAndBroadcast(newFs);
+  };
+
+  const handleSearchResultClick = (path, line, column, length) => {
+    if (!openFiles.includes(path)) {
+      setOpenFiles((prev) => [...prev, path]);
+    }
+    setActiveFile(path);
+    setNavigationTarget({ path, line, column, length, ts: Date.now() });
   };
 
   const handleCopyLink = () => {
@@ -521,12 +570,11 @@ export default function Session() {
                 )}
 
                 {activeSidebarTab === "search" && (
-                  <div className="p-3">
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-800 text-xs text-neutral-500">
-                      <Search className="w-3 h-3" />
-                      Search
-                    </div>
-                  </div>
+                  <SearchPanel 
+                    fileSystem={fileSystem} 
+                    onResultClick={handleSearchResultClick} 
+                    autoFocus={activeSidebarTab === "search"}
+                  />
                 )}
               </div>
             </motion.div>
@@ -588,8 +636,9 @@ export default function Session() {
                 sessionId={sessionId}
                 fileSystem={fileSystem}
                 activeFile={activeFile}
+                navigationTarget={navigationTarget}
                 onCursorChange={setCursorPos}
-                onContentChange={(newContent) => {
+                onContentChange={(changes, newContent) => {
                   const newFs = {
                     ...fileSystem,
                     [activeFile]: {
