@@ -9,6 +9,7 @@ export const useCollaborationStore = create((set, get) => ({
   channel: null,
   userColor: generateColor(),
   onCodeChanges: null,
+  onFullSync: null,
 
   setCollaborators: (collaborators) => set({ collaborators }),
   setCursors: (cursors) => set({ cursors }),
@@ -16,7 +17,8 @@ export const useCollaborationStore = create((set, get) => ({
   joinCollaboration: async (sessionId, user) => {
     const existing = get().channel;
     if (existing) {
-      await existing.unsubscribe();
+      set({ channel: null });
+      existing.unsubscribe().catch(console.error);
     }
 
     const { userColor } = get();
@@ -93,6 +95,13 @@ export const useCollaborationStore = create((set, get) => ({
           cb(payload.changes, payload.userId, payload.path);
         }
       })
+      .on("broadcast", { event: "full-sync" }, ({ payload }) => {
+        if (payload.userId === user.id) return;
+        const cb = get().onFullSync;
+        if (cb) {
+          cb(payload.content, payload.userId, payload.path);
+        }
+      })
       .on("broadcast", { event: "fs-change" }, ({ payload }) => {
         if (payload.userId === user.id) return;
         const cb = get().onFileSystemChange;
@@ -101,29 +110,33 @@ export const useCollaborationStore = create((set, get) => ({
         }
       });
 
+    set({ channel });
+
     await channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
-        await channel.track({
-          user_id: user.id,
-          display_name:
-            user.user_metadata?.display_name ||
-            user.email?.split("@")[0] ||
-            "Anonymous",
-          color: userColor,
-          online_at: new Date().toISOString(),
-        });
+        const currentChannel = get().channel;
+        if (currentChannel === channel) {
+          await channel.track({
+            user_id: user.id,
+            display_name:
+              user.user_metadata?.display_name ||
+              user.email?.split("@")[0] ||
+              "Anonymous",
+            color: userColor,
+            online_at: new Date().toISOString(),
+          });
+        }
       }
     });
 
-    set({ channel });
     return channel;
   },
 
   leaveCollaboration: async () => {
     const { channel } = get();
     if (channel) {
-      await channel.unsubscribe();
       set({ channel: null, collaborators: [], cursors: {}, lockedLines: {} });
+      await channel.unsubscribe().catch(console.error);
     }
   },
 
@@ -173,6 +186,17 @@ export const useCollaborationStore = create((set, get) => ({
     }
   },
 
+  broadcastFullSync: (userId, path, content) => {
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "full-sync",
+        payload: { userId, path, content },
+      });
+    }
+  },
+
   broadcastFileSystemChange: (userId, fs) => {
     const { channel } = get();
     if (channel) {
@@ -195,6 +219,7 @@ export const useCollaborationStore = create((set, get) => ({
   },
 
   setOnCodeChanges: (callback) => set({ onCodeChanges: callback }),
+  setOnFullSync: (callback) => set({ onFullSync: callback }),
 
   onFileSystemChange: null,
   setOnFileSystemChange: (callback) => set({ onFileSystemChange: callback }),
