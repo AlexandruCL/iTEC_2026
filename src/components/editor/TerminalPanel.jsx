@@ -11,6 +11,9 @@ import {
 
 const RUNNABLE_LANGUAGES = ["javascript", "python"];
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8787";
+const MAX_TERMINAL_LINES = 1500;
+const MAX_LINES_PER_EVENT = 200;
+const MAX_LINE_LENGTH = 2000;
 
 function formatTimestamp() {
   const now = new Date();
@@ -86,15 +89,26 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
 
   const addLines = useCallback((newLines) => {
     const time = formatTimestamp();
-    setLines((prev) => [
-      ...prev,
-      ...newLines.map((line, i) => ({
+    setLines((prev) => {
+      const merged = [
+        ...prev,
+        ...newLines.map((line, i) => ({
         id: Date.now() + i + Math.random(),
-        text: line.text,
+        text:
+          typeof line.text === "string" && line.text.length > MAX_LINE_LENGTH
+            ? `${line.text.slice(0, MAX_LINE_LENGTH)} ...[truncated]`
+            : line.text,
         type: line.type || "log",
         time: i === 0 ? time : "",
       })),
-    ]);
+      ];
+
+      if (merged.length <= MAX_TERMINAL_LINES) {
+        return merged;
+      }
+
+      return merged.slice(-MAX_TERMINAL_LINES);
+    });
   }, []);
 
   const cleanupSocket = useCallback(() => {
@@ -139,6 +153,9 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
         return;
       }
 
+      // Echo user stdin immediately so ordering matches what the user typed.
+      addLines([{ text: `> ${input}`, type: "input" }]);
+
       try {
         const response = await fetch(
           `${BACKEND_URL}/v1/executions/${activeExecutionId}/input`,
@@ -153,8 +170,6 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
         if (!response.ok || !body.accepted) {
           throw new Error(body?.error || body?.reason || "stdin not accepted");
         }
-
-        addLines([{ text: `> ${input}`, type: "input" }]);
       } catch (error) {
         addLines([{ text: `Failed to send input: ${error.message}`, type: "error" }]);
       }
@@ -218,12 +233,23 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
             if (chunks.length === 0) {
               return;
             }
+
+            const visible = chunks.slice(0, MAX_LINES_PER_EVENT);
             addLines(
-              chunks.map((line) => ({
+              visible.map((line) => ({
                 text: line,
                 type: msg.type === "stderr" ? "error" : "log",
               })),
             );
+
+            if (chunks.length > visible.length) {
+              addLines([
+                {
+                  text: `...[${chunks.length - visible.length} lines omitted from one output burst]`,
+                  type: "muted",
+                },
+              ]);
+            }
             return;
           }
 
