@@ -30,6 +30,15 @@ const MAX_LINES_PER_EVENT = 200;
 const MAX_LINE_LENGTH = 2000;
 const LOCK_HEARTBEAT_MS = 4000;
 const LOCK_STALE_MS = 12000;
+const BRAINROT_PATTERN = /(^|[^0-9])6(?:[\s\W_])*7(?=[^0-9]|$)/;
+const BRAINROT_AUDIO_SRC = "/67.mp3?v=20260328-1";
+const BRAINROT_AUDIO_COOLDOWN_MS = 1200;
+const BRAINROT_GLOW_MS = 2000;
+
+function hasBrainrotToken(value) {
+  if (typeof value !== "string") return false;
+  return BRAINROT_PATTERN.test(value);
+}
 
 function formatTimestamp() {
   const now = new Date();
@@ -155,6 +164,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const [inputValue, setInputValue] = useState("");
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [panelHeight, setPanelHeight] = useState(240);
+  const [brainrotPulseUntil, setBrainrotPulseUntil] = useState(0);
 
   const inputRef = useRef(null);
   const outputEndRef = useRef(null);
@@ -164,6 +174,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const socketsRef = useRef(new Map());
   const suppressNextBroadcastRef = useRef(false);
   const terminalsRef = useRef([]);
+  const brainrotAudioRef = useRef(null);
+  const lastBrainrotPlayRef = useRef(0);
+  const brainrotAudioPrimedRef = useRef(false);
 
   useEffect(() => {
     terminalsRef.current = terminals;
@@ -244,6 +257,33 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
   const addLines = useCallback(
     (terminalId, newLines, shouldBroadcast = true) => {
+      const shouldTriggerBrainrot = (newLines || []).some((line) =>
+        hasBrainrotToken(line?.text),
+      );
+
+      if (shouldTriggerBrainrot) {
+        setBrainrotPulseUntil(Date.now() + BRAINROT_GLOW_MS);
+
+        const now = Date.now();
+        if (now - lastBrainrotPlayRef.current >= BRAINROT_AUDIO_COOLDOWN_MS) {
+          lastBrainrotPlayRef.current = now;
+
+          try {
+            if (!brainrotAudioRef.current) {
+              brainrotAudioRef.current = new Audio(BRAINROT_AUDIO_SRC);
+              brainrotAudioRef.current.preload = "auto";
+              brainrotAudioRef.current.load();
+            }
+            brainrotAudioRef.current.currentTime = 0;
+            brainrotAudioRef.current.play().catch(() => {
+              // Browser autoplay rules may block until user interaction.
+            });
+          } catch {
+            // Best-effort easter egg.
+          }
+        }
+      }
+
       const prepared = sanitizeLines(newLines);
 
       updateTerminal(
@@ -265,6 +305,83 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       );
     },
     [updateTerminal],
+  );
+
+  const isBrainrotPulsing = brainrotPulseUntil > Date.now();
+
+  useEffect(() => {
+    if (!brainrotAudioRef.current) {
+      brainrotAudioRef.current = new Audio(BRAINROT_AUDIO_SRC);
+      brainrotAudioRef.current.preload = "auto";
+      brainrotAudioRef.current.load();
+    }
+
+    const primeAudio = () => {
+      if (!brainrotAudioRef.current || brainrotAudioPrimedRef.current) return;
+
+      const audio = brainrotAudioRef.current;
+      try {
+        audio.volume = 0;
+        const promise = audio.play();
+        if (promise?.then) {
+          promise
+            .then(() => {
+              audio.pause();
+              audio.currentTime = 0;
+              audio.volume = 1;
+              brainrotAudioPrimedRef.current = true;
+            })
+            .catch(() => {
+              audio.volume = 1;
+            });
+        } else {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = 1;
+          brainrotAudioPrimedRef.current = true;
+        }
+      } catch {
+        audio.volume = 1;
+      }
+    };
+
+    window.addEventListener("pointerdown", primeAudio, { once: true });
+    window.addEventListener("keydown", primeAudio, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", primeAudio);
+      window.removeEventListener("keydown", primeAudio);
+    };
+  }, []);
+
+  const renderLineText = useCallback(
+    (text) => {
+      if (typeof text !== "string") return text;
+      if (!hasBrainrotToken(text)) return text;
+
+      const parts = text.split(/([67])/g);
+      return parts.map((part, index) => {
+        if (part !== "6" && part !== "7") {
+          return (
+            <React.Fragment key={`brainrot-${index}`}>{part}</React.Fragment>
+          );
+        }
+
+        return (
+          <span
+            key={`brainrot-${index}`}
+            className={`font-semibold text-fuchsia-300 ${
+              isBrainrotPulsing
+                ? "animate-pulse drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]"
+                : "drop-shadow-[0_0_5px_rgba(217,70,239,0.7)]"
+            }`}
+          >
+            {part}
+          </span>
+        );
+      });
+    },
+    [isBrainrotPulsing],
   );
 
   const cleanupSocket = useCallback((terminalId) => {
@@ -1168,6 +1285,11 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       Array.from(socketsRef.current.keys()).forEach((terminalId) => {
         cleanupSocket(terminalId);
       });
+
+      if (brainrotAudioRef.current) {
+        brainrotAudioRef.current.pause();
+        brainrotAudioRef.current = null;
+      }
     };
   }, [cleanupSocket]);
 
@@ -1483,7 +1605,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 )}
                 {!line.time && <span className="w-[52px] flex-shrink-0" />}
                 <span className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}>
-                  {line.text}
+                  {renderLineText(line.text)}
                 </span>
               </div>
             ))}

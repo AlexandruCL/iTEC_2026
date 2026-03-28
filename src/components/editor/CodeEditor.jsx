@@ -22,6 +22,7 @@ const CodeEditor = forwardRef(function CodeEditor({
   const decorationsRef = useRef([]);
   const lockDecorationsRef = useRef([]);
   const searchDecorationRef = useRef([]);
+  const brainrotDecorationsRef = useRef([]);
   const containerRef = useRef(null);
   const saveTimeoutRef = useRef(null);
   const fullSyncTimerRef = useRef(null);
@@ -231,6 +232,54 @@ const CodeEditor = forwardRef(function CodeEditor({
     );
   }, [lockedLines, user?.id]);
 
+  const updateBrainrotDecorations = useCallback(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    const newDecorations = [];
+    const pairRegex = /(^|[^0-9])6(?:[\s\W_])*7(?=[^0-9]|$)/g;
+
+    const lineCount = model.getLineCount();
+    for (let lineNumber = 1; lineNumber <= lineCount; lineNumber++) {
+      const line = model.getLineContent(lineNumber);
+      let pairMatch;
+
+      while ((pairMatch = pairRegex.exec(line)) !== null) {
+        const segment = pairMatch[0];
+        const segmentStart = pairMatch.index;
+
+        for (let i = 0; i < segment.length; i++) {
+          const char = segment[i];
+          if (char !== "6" && char !== "7") continue;
+
+          const startColumn = segmentStart + i + 1;
+          const endColumn = startColumn + 1;
+
+          newDecorations.push({
+            range: new monaco.Range(
+              lineNumber,
+              startColumn,
+              lineNumber,
+              endColumn,
+            ),
+            options: {
+              inlineClassName: "brainrot-highlight-67",
+            },
+          });
+        }
+      }
+    }
+
+    brainrotDecorationsRef.current = editor.deltaDecorations(
+      brainrotDecorationsRef.current,
+      newDecorations,
+    );
+  }, []);
+
   const updateCursorNameOverlays = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -312,6 +361,10 @@ const CodeEditor = forwardRef(function CodeEditor({
   }, [updateLockDecorations]);
 
   useEffect(() => {
+    updateBrainrotDecorations();
+  }, [activeFile, fileSystem, updateBrainrotDecorations]);
+
+  useEffect(() => {
     const styleId = "remote-cursor-styles";
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
@@ -380,6 +433,14 @@ const CodeEditor = forwardRef(function CodeEditor({
         background-color: rgba(234, 189, 58, 0.4);
         border-radius: 2px;
         transition: background-color 0.5s ease;
+      }
+
+      .brainrot-highlight-67 {
+        color: #f0abfc !important;
+        font-weight: 700;
+        text-shadow:
+          0 0 6px rgba(217, 70, 239, 0.9),
+          0 0 12px rgba(217, 70, 239, 0.7);
       }
     `;
 
@@ -786,6 +847,8 @@ const CodeEditor = forwardRef(function CodeEditor({
       if (onContentChange) {
         onContentChange(event.changes, editor.getValue());
       }
+
+      updateBrainrotDecorations();
     });
 
     editor.focus();
