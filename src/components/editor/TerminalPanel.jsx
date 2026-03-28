@@ -33,20 +33,10 @@ const MAX_LINE_LENGTH = 2000;
 const LOCK_HEARTBEAT_MS = 4000;
 const LOCK_STALE_MS = 12000;
 const TERMINAL_STORAGE_PREFIX = "itec-terminal-state";
-
-const JUMPSCARE_IMAGE_URL =
-  "https://mgmwkptgjpfqayqixcnf.supabase.co/storage/v1/object/public/easter-eggs/jumpscare.jpeg";
-let jumpscareAudio = null;
-
-if (typeof window !== "undefined") {
-  fetch("https://www.myinstants.com/media/sounds/fnaf-1-jumpscare-sound.mp3")
-    .then((res) => res.blob())
-    .then((blob) => {
-      jumpscareAudio = new Audio(URL.createObjectURL(blob));
-      jumpscareAudio.preload = "auto";
-    })
-    .catch(() => {});
-}
+const BRAINROT_PATTERN = /(^|[^0-9])6(?:[\s\W_])*7(?=[^0-9]|$)/;
+const BRAINROT_AUDIO_COOLDOWN_MS = 1200;
+const BRAINROT_AUDIO_URL =
+  "https://mgmwkptgjpfqayqixcnf.supabase.co/storage/v1/object/public/easter-eggs/67.mp3";
 
 function formatTimestamp() {
   const now = new Date();
@@ -109,15 +99,19 @@ function createTerminal(index, ownerName) {
 
 function sanitizeLines(newLines) {
   const time = formatTimestamp();
-  return newLines.map((line, i) => ({
-    id: `${Date.now()}-${i}-${Math.random()}`,
-    text:
+  return newLines.map((line, i) => {
+    const rawText =
       typeof line.text === "string" && line.text.length > MAX_LINE_LENGTH
         ? `${line.text.slice(0, MAX_LINE_LENGTH)} ...[truncated]`
-        : line.text,
-    type: line.type || "log",
-    time: i === 0 ? time : "",
-  }));
+        : line.text;
+    return {
+      id: `${Date.now()}-${i}-${Math.random()}`,
+      text: rawText,
+      type: line.type || "log",
+      time: i === 0 ? time : "",
+      hasBrainrot: hasBrainrotToken(rawText),
+    };
+  });
 }
 
 function normalizeTerminal(terminal) {
@@ -143,6 +137,46 @@ function formatRelativeTime(ts) {
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   return `${Math.floor(diff / 3_600_000)}h ago`;
+}
+
+function hasBrainrotToken(value) {
+  if (typeof value !== "string") return false;
+  return BRAINROT_PATTERN.test(value);
+}
+
+// Renders terminal text with digits 6 and 7 visually highlighted when the
+// line contains a brainrot 67 pattern. Only active on flagged lines so
+// normal output pays zero cost.
+function renderHighlighted67(text) {
+  if (typeof text !== "string" || !text) return text;
+
+  const parts = [];
+  let i = 0;
+
+  while (i < text.length) {
+    if (text[i] === "6" || text[i] === "7") {
+      parts.push(
+        <span
+          key={`hl-${i}`}
+          className="text-yellow-300 font-bold drop-shadow-[0_0_6px_rgba(250,204,21,0.8)]"
+          style={{ textShadow: "0 0 8px rgba(250,204,21,0.7), 0 0 2px rgba(250,204,21,0.9)" }}
+        >
+          {text[i]}
+        </span>,
+      );
+      i += 1;
+    } else {
+      // Batch consecutive non-highlighted characters into one text node
+      let end = i + 1;
+      while (end < text.length && text[end] !== "6" && text[end] !== "7") {
+        end += 1;
+      }
+      parts.push(text.slice(i, end));
+      i = end;
+    }
+  }
+
+  return parts;
 }
 
 const TerminalPanel = forwardRef(function TerminalPanel(
@@ -195,6 +229,12 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const activeTerminalIdRef = useRef(null);
   const isAuthoritativeHostRef = useRef(false);
   const userIdRef = useRef(null);
+  const brainrotAudioRef = useRef(null);
+  const lastBrainrotPlayRef = useRef(0);
+  const brainrotCanAutoplayRef = useRef(false);
+  // Holds the trailing characters of the previous stdout/stderr chunk
+  // so we can detect a 67 pattern split across two WebSocket messages.
+  const pendingBrainrotBufferRef = useRef(new Map());
 
   useEffect(() => {
     terminalsRef.current = terminals;
@@ -207,7 +247,51 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       .then((blob) => {
         setJumpscareAudioUrl(URL.createObjectURL(blob));
       })
-      .catch(() => {});
+      .catch(() => { });
+  }, []);
+
+  // Pre-load 67 sound and unlock playback after first user interaction.
+  useEffect(() => {
+    const audio = new Audio(BRAINROT_AUDIO_URL);
+    audio.preload = "auto";
+    brainrotAudioRef.current = audio;
+
+    const unlock = () => {
+      const current = brainrotAudioRef.current;
+      if (!current || brainrotCanAutoplayRef.current) return;
+
+      current.volume = 0;
+      const p = current.play();
+      if (p?.then) {
+        p
+          .then(() => {
+            current.pause();
+            current.currentTime = 0;
+            current.volume = 1;
+            brainrotCanAutoplayRef.current = true;
+          })
+          .catch(() => {
+            current.volume = 1;
+          });
+      } else {
+        current.pause();
+        current.currentTime = 0;
+        current.volume = 1;
+        brainrotCanAutoplayRef.current = true;
+      }
+    };
+
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      if (brainrotAudioRef.current) {
+        brainrotAudioRef.current.pause();
+        brainrotAudioRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -276,23 +360,6 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     ? false
     : !activeTerminal.lockOwnerId || activeTerminal.lockOwnerId === user?.id;
 
-  const triggerJumpscare = useCallback((actionMsg) => {
-    setShowJumpscare(true);
-    if (jumpscareAudio) {
-      jumpscareAudio.currentTime = 0;
-      jumpscareAudio.volume = 1;
-      const playPromise = jumpscareAudio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((e) => console.error("Audio play failed:", e));
-      }
-    }
-    setTimeout(() => {
-      setShowJumpscare(false);
-      if (jumpscareAudio) jumpscareAudio.pause();
-    }, 2000);
-    toast?.error(actionMsg);
-  }, []);
-
   const applyAndMaybeBroadcast = useCallback(
     (nextTerminals, nextActiveId, shouldBroadcast = true) => {
       setTerminals(nextTerminals);
@@ -334,6 +401,28 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
   const addLines = useCallback(
     (terminalId, newLines, shouldBroadcast = true) => {
+      const shouldTriggerBrainrot = (newLines || []).some((line) =>
+        hasBrainrotToken(line?.text),
+      );
+
+      if (shouldTriggerBrainrot) {
+        const now = Date.now();
+        if (now - lastBrainrotPlayRef.current >= BRAINROT_AUDIO_COOLDOWN_MS) {
+          lastBrainrotPlayRef.current = now;
+
+          const audio = brainrotAudioRef.current || new Audio(BRAINROT_AUDIO_URL);
+          brainrotAudioRef.current = audio;
+
+          try {
+            audio.currentTime = 0;
+            audio.volume = 1;
+            audio.play().catch(() => { });
+          } catch {
+            // Ignore playback errors.
+          }
+        }
+      }
+
       const prepared = sanitizeLines(newLines);
 
       updateTerminal(
@@ -653,8 +742,33 @@ const TerminalPanel = forwardRef(function TerminalPanel(
             }
 
             if (msg.type === "stdout" || msg.type === "stderr") {
-              const output = (msg.chunk || "").replace(/\r/g, "");
-              const chunks = output
+              const rawOutput = (msg.chunk || "").replace(/\r/g, "");
+
+              // Cross-chunk 67 detection: prepend buffered trailing chars
+              // from the previous chunk for pattern matching only.
+              const bufferMap = pendingBrainrotBufferRef.current;
+              const prevTail = bufferMap.get(terminalId) || "";
+              const combinedForDetection = prevTail + rawOutput;
+
+              // If the combined text matches 67 pattern but neither piece
+              // does individually, feed the brainrot trigger through addLines.
+              if (
+                prevTail &&
+                hasBrainrotToken(combinedForDetection) &&
+                !hasBrainrotToken(prevTail) &&
+                !hasBrainrotToken(rawOutput)
+              ) {
+                // Inject a synthetic marker line so addLines triggers the audio.
+                // The marker carries no visible length, it only fires the sound.
+                addLines(terminalId, [
+                  { text: "6 7", type: "__brainrot_bridge" },
+                ], true);
+              }
+
+              // Save trailing chars (up to 10) for next chunk comparison.
+              bufferMap.set(terminalId, rawOutput.slice(-10));
+
+              const chunks = rawOutput
                 .split("\n")
                 .filter((line) => line.length > 0);
               if (chunks.length === 0) {
@@ -1267,9 +1381,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       const normalizedTerminals = saved.terminals.map(normalizeTerminal);
       const savedActiveId =
         saved.activeTerminalId &&
-        normalizedTerminals.some(
-          (terminal) => terminal.id === saved.activeTerminalId,
-        )
+          normalizedTerminals.some(
+            (terminal) => terminal.id === saved.activeTerminalId,
+          )
           ? saved.activeTerminalId
           : normalizedTerminals[0]?.id || null;
 
@@ -1619,8 +1733,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                   const isSnippetTerminal = !!terminal.isSnippetTerminal;
                   const lockOwnerDisplayName = terminal.lockOwnerId
                     ? collaboratorNameById.get(terminal.lockOwnerId) ||
-                      terminal.lockOwnerName ||
-                      terminal.lockOwnerId
+                    terminal.lockOwnerName ||
+                    terminal.lockOwnerId
                     : null;
 
                   return (
@@ -1629,11 +1743,10 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                       onClick={() => {
                         setActiveTerminalId(terminal.id);
                       }}
-                      className={`px-2 py-1 rounded text-xs border transition-colors whitespace-nowrap ${
-                        isActive
+                      className={`px-2 py-1 rounded text-xs border transition-colors whitespace-nowrap ${isActive
                           ? "bg-neutral-800 border-neutral-600 text-neutral-100"
                           : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200"
-                      }`}
+                        }`}
                       title={terminal.name}
                     >
                       <span>{terminal.name}</span>
@@ -1681,8 +1794,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     {(activeTerminal.lockOwnerId === user?.id
                       ? "You"
                       : collaboratorNameById.get(activeTerminal.lockOwnerId) ||
-                        activeTerminal.lockOwnerName ||
-                        activeTerminal.lockOwnerId) + " locked"}
+                      activeTerminal.lockOwnerName ||
+                      activeTerminal.lockOwnerId) + " locked"}
                   </span>
                 </div>
               )}
@@ -1804,10 +1917,10 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                         {activeTerminal.lockOwnerId === user?.id
                           ? "you"
                           : collaboratorNameById.get(
-                              activeTerminal.lockOwnerId,
-                            ) ||
-                            activeTerminal.lockOwnerName ||
-                            activeTerminal.lockOwnerId}
+                            activeTerminal.lockOwnerId,
+                          ) ||
+                          activeTerminal.lockOwnerName ||
+                          activeTerminal.lockOwnerId}
                       </span>
                     </>
                   )}
@@ -1824,7 +1937,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     <span
                       className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}
                     >
-                      {line.text}
+                      {line.hasBrainrot
+                        ? renderHighlighted67(line.text)
+                        : line.text}
                     </span>
                   </div>
                 ))}
@@ -1832,9 +1947,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 <div className="flex gap-2 items-center min-h-[1.5rem]">
                   <span className="w-[52px] flex-shrink-0" />
                   <span
-                    className={`select-none ${
-                      isLockedByOther ? "text-amber-400" : "text-accent-400"
-                    }`}
+                    className={`select-none ${isLockedByOther ? "text-amber-400" : "text-accent-400"
+                      }`}
                   >
                     $
                   </span>
@@ -1844,11 +1958,10 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className={`flex-1 bg-transparent border-none outline-none text-[13px] font-mono placeholder-neutral-600 ${
-                      isLockedByOther
+                    className={`flex-1 bg-transparent border-none outline-none text-[13px] font-mono placeholder-neutral-600 ${isLockedByOther
                         ? "text-neutral-500 caret-transparent cursor-not-allowed"
                         : "text-neutral-100 caret-accent-400"
-                    }`}
+                      }`}
                     placeholder={
                       isLockedByOther
                         ? `locked by ${collaboratorNameById.get(activeTerminal.lockOwnerId) || activeTerminal.lockOwnerName || activeTerminal.lockOwnerId}`
@@ -1869,9 +1982,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
           </div>
 
           <div
-            className={`fixed inset-0 z-[9999] bg-black flex items-center justify-center pointer-events-none transition-opacity duration-75 ${
-              showJumpscare ? "opacity-100" : "opacity-0"
-            }`}
+            className={`fixed inset-0 z-[9999] bg-black flex items-center justify-center pointer-events-none transition-opacity duration-75 ${showJumpscare ? "opacity-100" : "opacity-0"
+              }`}
           >
             {jumpscareImageUrl && (
               <img
