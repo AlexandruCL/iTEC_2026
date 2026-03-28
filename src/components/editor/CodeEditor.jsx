@@ -393,6 +393,50 @@ const CodeEditor = forwardRef(function CodeEditor({
       }
     }
 
+    // Helper: check if a specific line is locked by another user
+    const isLineLockedForUser = (lineNumber) => {
+      const currentUser = useAuthStore.getState().user;
+      if (!currentUser) return false;
+      const currentPath = propsRef.current.activeFile;
+      const currentLocks = useCollaborationStore.getState().lockedLines;
+      for (const [uid, lock] of Object.entries(currentLocks)) {
+        if (uid !== currentUser.id && lock.path === currentPath && lock.lineNumber === lineNumber) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Block keyboard input on locked lines (catches typing, backspace, delete, etc.)
+    editor.onKeyDown((e) => {
+      if (isRemoteRef.current) return;
+      const position = editor.getPosition();
+      if (!position) return;
+
+      // Only block content-modifying keys, not navigation
+      const isNavigationKey = [
+        monaco.KeyCode.UpArrow, monaco.KeyCode.DownArrow,
+        monaco.KeyCode.LeftArrow, monaco.KeyCode.RightArrow,
+        monaco.KeyCode.Home, monaco.KeyCode.End,
+        monaco.KeyCode.PageUp, monaco.KeyCode.PageDown,
+        monaco.KeyCode.Escape, monaco.KeyCode.Tab,
+      ].includes(e.keyCode);
+
+      // Allow Ctrl/Cmd shortcuts for copy, select all, etc.
+      const isModifierShortcut = (e.ctrlKey || e.metaKey) && [
+        monaco.KeyCode.KeyC, monaco.KeyCode.KeyA,
+        monaco.KeyCode.KeyZ, monaco.KeyCode.KeyF,
+        monaco.KeyCode.KeyB, monaco.KeyCode.KeyS,
+      ].includes(e.keyCode);
+
+      if (isNavigationKey || isModifierShortcut) return;
+
+      if (isLineLockedForUser(position.lineNumber)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+
     editor.onDidChangeCursorPosition(() => {
       if (isRemoteRef.current) return;
       const currentUser = useAuthStore.getState().user;
@@ -402,18 +446,8 @@ const CodeEditor = forwardRef(function CodeEditor({
       if (!position) return;
 
       const newLine = position.lineNumber;
-      const currentLocks = useCollaborationStore.getState().lockedLines;
 
-      const currentPath = propsRef.current.activeFile;
-      let isLineLocked = false;
-      for (const [uid, lock] of Object.entries(currentLocks)) {
-        if (uid !== currentUser.id && lock.path === currentPath && lock.lineNumber === newLine) {
-          isLineLocked = true;
-          break;
-        }
-      }
-
-      if (isLineLocked) {
+      if (isLineLockedForUser(newLine)) {
         const prevPos = lastValidPositionRef.current;
         if (prevPos) {
           requestAnimationFrame(() => {
@@ -425,14 +459,7 @@ const CodeEditor = forwardRef(function CodeEditor({
             const totalLines = model.getLineCount();
             let safeLine = null;
             for (let i = totalLines; i >= 1; i--) {
-              let lineFree = true;
-              for (const [uid, lock] of Object.entries(currentLocks)) {
-                if (uid !== currentUser.id && lock.path === currentPath && lock.lineNumber === i) {
-                  lineFree = false;
-                  break;
-                }
-              }
-              if (lineFree) {
+              if (!isLineLockedForUser(i)) {
                 safeLine = i;
                 break;
               }
@@ -513,6 +540,24 @@ const CodeEditor = forwardRef(function CodeEditor({
 
       const currentUser = useAuthStore.getState().user;
       if (!currentUser) return;
+
+      // Check if any change touches a locked line — if so, undo immediately
+      const touchesLockedLine = event.changes.some((change) => {
+        for (let line = change.range.startLineNumber; line <= change.range.endLineNumber; line++) {
+          if (isLineLockedForUser(line)) return true;
+        }
+        return false;
+      });
+
+      if (touchesLockedLine) {
+        // Undo the edit that touched a locked line
+        isRemoteRef.current = true;
+        editor.trigger('locked-line-guard', 'undo', null);
+        requestAnimationFrame(() => {
+          isRemoteRef.current = false;
+        });
+        return;
+      }
 
       const { activeFile, onContentChange } = propsRef.current;
 
