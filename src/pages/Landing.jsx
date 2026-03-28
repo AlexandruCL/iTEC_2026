@@ -27,6 +27,7 @@ import CodeSnippet, {
 } from "@/components/ui/CodeSnippet";
 import ShapeGrid from "@/components/ui/ShapeGrid";
 import FaultyTerminal from "@/components/ui/FaultyTerminal";
+import IntroTerminal from "@/components/ui/IntroTerminal";
 import { useAuthStore } from "@/stores/authStore";
 
 const features = [
@@ -78,12 +79,28 @@ const steps = [
 ];
 
 export default function Landing() {
-  const { user } = useAuthStore();
+  const { user, loading } = useAuthStore();
   const navigate = useNavigate();
+  const [showIntro, setShowIntro] = React.useState(!sessionStorage.getItem("itecify_intro_seen"));
 
   const handleStartCoding = () => {
     navigate(user ? "/dashboard" : "/signup");
   };
+
+  if (loading) {
+    return <div className="min-h-screen bg-neutral-950" />;
+  }
+
+  if (showIntro && !user) {
+    return (
+      <IntroTerminal
+        onComplete={() => {
+          setShowIntro(false);
+          sessionStorage.setItem("itecify_intro_seen", "true");
+        }}
+      />
+    );
+  }
 
   return (
     <div id="landing-page" className="min-h-screen bg-neutral-950">
