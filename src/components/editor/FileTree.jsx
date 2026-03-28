@@ -1,5 +1,18 @@
 import React, { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown, FileCode, Folder, FolderOpen, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronDown,
+  FileCode,
+  Folder,
+  FolderOpen,
+  Plus,
+  Trash2,
+  Edit2,
+  Check,
+  X,
+  Upload,
+  Download,
+} from 'lucide-react';
 
 function getFileName(path) {
   return path.split('/').pop() || '';
@@ -355,13 +368,17 @@ export default function FileTree({
   onCreateFolder,
   onMove,
   onRename,
-  onDelete
+  onDelete,
+  onRequestUpload,
+  onRequestDownload,
+  onUploadDrop,
 }) {
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [creatingNode, setCreatingNode] = useState(null);
   const [renamingNode, setRenamingNode] = useState(null);
   const [deletingNode, setDeletingNode] = useState(null);
   const [dragTarget, setDragTarget] = useState(null);
+  const [isDropzoneActive, setIsDropzoneActive] = useState(false);
 
   const tree = useMemo(() => buildTree(fileSystem || {}), [fileSystem]);
 
@@ -388,12 +405,57 @@ export default function FileTree({
     else onCreateFolder(parentPath, name);
   };
 
+  const hasExternalFiles = (event) => {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes('Files');
+  };
+
+  const handleDragOverCapture = (event) => {
+    if (!hasExternalFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!isDropzoneActive) setIsDropzoneActive(true);
+  };
+
+  const handleDragLeaveCapture = (event) => {
+    if (!hasExternalFiles(event)) return;
+    const next = event.relatedTarget;
+    if (event.currentTarget.contains(next)) return;
+    setIsDropzoneActive(false);
+  };
+
+  const handleDropCapture = (event) => {
+    if (!hasExternalFiles(event)) return;
+    event.preventDefault();
+    setIsDropzoneActive(false);
+    onUploadDrop?.(event);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-[#121215]">
+    <div
+      className="relative flex flex-col h-full bg-[#121215]"
+      onDragOverCapture={handleDragOverCapture}
+      onDragLeaveCapture={handleDragLeaveCapture}
+      onDropCapture={handleDropCapture}
+    >
       {/* Action Bar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
         <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Explorer</span>
         <div className="flex items-center gap-1">
+          <button 
+            onClick={onRequestUpload}
+            className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
+            title="Upload"
+          >
+            <Upload className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={onRequestDownload}
+            className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
+            title="Download Session (.zip)"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
           <button 
             onClick={() => handleStartCreate("file")}
             className="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
@@ -438,6 +500,15 @@ export default function FileTree({
           />
         )}
       </div>
+
+      {isDropzoneActive && (
+        <div className="absolute inset-0 m-2 rounded-lg border-2 border-dashed border-accent-500/70 bg-accent-500/10 flex items-center justify-center pointer-events-none">
+          <div className="text-center px-4">
+            <p className="text-sm font-semibold text-accent-300">Drop files or folders to upload</p>
+            <p className="text-xs text-neutral-300 mt-1">Your folder tree will be preserved.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
