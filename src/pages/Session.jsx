@@ -673,6 +673,7 @@ export default function Session() {
           <TerminalPanel
             language={currentSession.language}
             code={editorCode}
+            hostUserId={currentSession.user_id}
             isOpen={isTerminalOpen}
             onToggle={() => setIsTerminalOpen(false)}
           />
