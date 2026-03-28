@@ -678,6 +678,41 @@ export default function Session() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Replay shortcuts
+  useEffect(() => {
+    const handleReplayKeyDown = (e) => {
+      if (!isReplayMode || timelineEvents.length === 0) return;
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        applyReplayEventAt(Math.min(replayIndex + 1, timelineEvents.length - 1));
+      } else if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        applyReplayEventAt(Math.max(replayIndex - 1, 0));
+      }
+    };
+
+    window.addEventListener("keydown", handleReplayKeyDown);
+    return () => window.removeEventListener("keydown", handleReplayKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReplayMode, replayIndex, timelineEvents]);
+
+  // Auto-scroll active replay
+  useEffect(() => {
+    if (isReplayMode && replayIndex >= 0) {
+      const activeBtn = document.getElementById(`replay-btn-${replayIndex}`);
+      if (activeBtn) {
+        activeBtn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      }
+    }
+  }, [isReplayMode, replayIndex]);
+
   useEffect(() => {
     if (!isReplayViewer) return;
     if (!timelineEvents.length) return;
@@ -1529,12 +1564,10 @@ export default function Session() {
           </div>
 
           {isReplayMode && timelineEvents.length > 0 && (
-            <div className="h-24 bg-[#101014] border-b border-neutral-800 px-3 py-2 overflow-y-auto">
-              <div className="flex flex-col gap-1">
+            <div className="h-28 bg-[#101014] border-b border-neutral-800 px-3 py-2 overflow-x-auto overflow-y-hidden">
+              <div className="flex flex-row gap-2 h-full items-center">
                 {timelineEvents
-                  .slice(-25)
-                  .map((event, idx, arr) => {
-                    const absoluteIndex = timelineEvents.length - arr.length + idx;
+                  .map((event, absoluteIndex) => {
                     const isSelected =
                       selectedTimelineEventId === event.id ||
                       replayIndex === absoluteIndex;
@@ -1545,16 +1578,17 @@ export default function Session() {
                     return (
                       <button
                         key={event.id}
+                        id={`replay-btn-${absoluteIndex}`}
                         onClick={() => applyReplayEventAt(absoluteIndex)}
-                        className={`w-full text-left px-2 py-1 rounded text-[10px] border transition-colors ${
+                        className={`flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center p-2 rounded border transition-colors ${
                           isSelected
                             ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
                             : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
                         }`}
                       >
-                        <span className="font-semibold">#{absoluteIndex + 1}</span>{" "}
-                        <span>{event.event_type}</span>{" "}
-                        <span className="text-neutral-500">by {actorName}</span>
+                        <span className="font-semibold text-xs">#{absoluteIndex + 1}</span>
+                        <span className="text-[10px] truncate w-full text-center mt-1">{event.event_type}</span>
+                        <span className="text-[9px] text-neutral-500 truncate w-full text-center mt-1" title={actorName}>{actorName}</span>
                       </button>
                     );
                   })}
