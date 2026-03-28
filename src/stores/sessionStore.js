@@ -177,6 +177,30 @@ export const useSessionStore = create((set, get) => ({
     }
   },
 
+  appendTimelineSnapshot: async ({ sessionId, eventId, fs }) => {
+    if (!isSupabaseConfigured() || !supabase) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("session_timeline_snapshots")
+        .insert({
+          session_id: sessionId,
+          event_id: eventId,
+          fs,
+        })
+        .select("id, session_id, event_id, created_at")
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error("Failed to append timeline snapshot:", error);
+      return null;
+    }
+  },
+
   fetchTimelineEvents: async (sessionId, limit = 2500) => {
     if (!isSupabaseConfigured() || !supabase) {
       return [];

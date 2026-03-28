@@ -823,6 +823,10 @@ const CodeEditor = forwardRef(function CodeEditor({
 
         const existingModel = currentModels[path];
         if (existingModel.getValue() !== nextContent) {
+<<<<<<< HEAD
+=======
+          // Apply external state (replay/full sync) without re-broadcasting edits.
+>>>>>>> 44e53cdcc256f637b621ed8b94656ca5fa40cd19
           isRemoteRef.current = true;
           existingModel.setValue(nextContent);
           requestAnimationFrame(() => {
