@@ -190,7 +190,10 @@ export default function Session() {
     const baseX = anchor?.x ?? viewportWidth / 2 - panelWidth / 2;
     const baseY = anchor?.y ?? 120;
 
-    const x = Math.max(margin, Math.min(baseX, viewportWidth - panelWidth - margin));
+    const x = Math.max(
+      margin,
+      Math.min(baseX, viewportWidth - panelWidth - margin),
+    );
 
     let y = baseY + 8;
     if (y + panelHeight > viewportHeight - margin) {
@@ -215,7 +218,12 @@ export default function Session() {
     return lines.slice(1, -1).join("\n").trim();
   };
 
-  const requestInlineAiReplacement = async ({ selectedCode, instruction, language, fullCode }) => {
+  const requestInlineAiReplacement = async ({
+    selectedCode,
+    instruction,
+    language,
+    fullCode,
+  }) => {
     if (!effectiveAiKey) {
       throw new Error(
         "No API key available. Add one in Settings -> AI Configuration.",
@@ -313,7 +321,12 @@ export default function Session() {
       return;
     }
 
-    setInlineEdit((prev) => ({ ...prev, loading: true, error: "", suggestion: "" }));
+    setInlineEdit((prev) => ({
+      ...prev,
+      loading: true,
+      error: "",
+      suggestion: "",
+    }));
 
     try {
       const currentFileCode = fileSystem?.[activeFile]?.content || "";
@@ -388,6 +401,11 @@ export default function Session() {
       });
     };
 
+    const actualName =
+      user?.user_metadata?.display_name ||
+      user?.email?.split("@")[0] ||
+      "Anonymous";
+
     const event = await useSessionStore.getState().appendTimelineEvent({
       sessionId,
       actorUserId: user.id,
@@ -396,6 +414,7 @@ export default function Session() {
       payload: {
         ...extraPayload,
         fs: fsSnapshot,
+        actorName: actualName,
       },
     });
 
@@ -403,7 +422,8 @@ export default function Session() {
 
     if (
       event &&
-      (eventType === "session_snapshot" || event.id % TIMELINE_SNAPSHOT_INTERVAL === 0)
+      (eventType === "session_snapshot" ||
+        event.id % TIMELINE_SNAPSHOT_INTERVAL === 0)
     ) {
       useSessionStore.getState().appendTimelineSnapshot({
         sessionId,
@@ -437,7 +457,9 @@ export default function Session() {
       const fallback = getFirstFilePath(snapshotFs);
       if (fallback) {
         setActiveFile(fallback);
-        setOpenFiles((prev) => (prev.includes(fallback) ? prev : [...prev, fallback]));
+        setOpenFiles((prev) =>
+          prev.includes(fallback) ? prev : [...prev, fallback],
+        );
       }
     }
   };
@@ -445,7 +467,11 @@ export default function Session() {
   const toggleReplayMode = () => {
     if (!isReplayViewer) {
       const replayUrl = `${window.location.origin}/session/${sessionId}?mode=replay`;
-      const replayWindow = window.open(replayUrl, "_blank", "noopener,noreferrer");
+      const replayWindow = window.open(
+        replayUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
       if (!replayWindow) {
         toast.error("Popup blocked. Allow popups to open replay viewer.");
       }
@@ -521,28 +547,26 @@ export default function Session() {
   useEffect(() => {
     if (!sessionId || !user?.id || !isSupabaseConfigured() || !supabase) return;
 
-    const timelineChannel = supabase
-      .channel(`timeline-events:${sessionId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "session_timeline_events",
-          filter: `session_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          const eventRow = payload?.new;
-          if (!eventRow?.id) return;
+    const timelineChannel = supabase.channel(`timeline-events:${sessionId}`).on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "session_timeline_events",
+        filter: `session_id=eq.${sessionId}`,
+      },
+      (payload) => {
+        const eventRow = payload?.new;
+        if (!eventRow?.id) return;
 
-          setTimelineEvents((prev) => {
-            if (prev.some((existing) => existing.id === eventRow.id)) {
-              return prev;
-            }
-            return [...prev, eventRow].sort((a, b) => a.id - b.id);
-          });
-        },
-      );
+        setTimelineEvents((prev) => {
+          if (prev.some((existing) => existing.id === eventRow.id)) {
+            return prev;
+          }
+          return [...prev, eventRow].sort((a, b) => a.id - b.id);
+        });
+      },
+    );
 
     timelineChannel.subscribe();
 
@@ -552,19 +576,30 @@ export default function Session() {
   }, [sessionId, user?.id]);
 
   useEffect(() => {
-    if (currentSession?.code && currentSession.id === sessionId && !fileSystem) {
+    if (
+      currentSession?.code &&
+      currentSession.id === sessionId &&
+      !fileSystem
+    ) {
       try {
         const parsed = JSON.parse(currentSession.code);
         if (typeof parsed === "object" && parsed !== null) {
           // Rescue any corrupted files with array-based contents due to the previous event bug
-          Object.keys(parsed).forEach(key => {
-             if (parsed[key].type === "file" && typeof parsed[key].content !== "string") {
-                 let fallback = "";
-                 if (Array.isArray(parsed[key].content) && parsed[key].content.length > 0 && parsed[key].content[0].text) {
-                     fallback = parsed[key].content[0].text; // Attempt weak rescue
-                 }
-                 parsed[key].content = fallback;
-             }
+          Object.keys(parsed).forEach((key) => {
+            if (
+              parsed[key].type === "file" &&
+              typeof parsed[key].content !== "string"
+            ) {
+              let fallback = "";
+              if (
+                Array.isArray(parsed[key].content) &&
+                parsed[key].content.length > 0 &&
+                parsed[key].content[0].text
+              ) {
+                fallback = parsed[key].content[0].text; // Attempt weak rescue
+              }
+              parsed[key].content = fallback;
+            }
           });
           setFileSystem(parsed);
           const firstFile = Object.keys(parsed).find(
@@ -668,7 +703,11 @@ export default function Session() {
         setSidebarOpen((prev) => !prev);
       }
       // Global Search
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "f"
+      ) {
         e.preventDefault();
         setSidebarOpen(true);
         setActiveSidebarTab("search");
@@ -691,7 +730,9 @@ export default function Session() {
 
       if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") {
         e.preventDefault();
-        applyReplayEventAt(Math.min(replayIndex + 1, timelineEvents.length - 1));
+        applyReplayEventAt(
+          Math.min(replayIndex + 1, timelineEvents.length - 1),
+        );
       } else if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
         e.preventDefault();
         applyReplayEventAt(Math.max(replayIndex - 1, 0));
@@ -708,7 +749,11 @@ export default function Session() {
     if (isReplayMode && replayIndex >= 0) {
       const activeBtn = document.getElementById(`replay-btn-${replayIndex}`);
       if (activeBtn) {
-        activeBtn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        activeBtn.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
       }
     }
   }, [isReplayMode, replayIndex]);
@@ -829,7 +874,10 @@ export default function Session() {
     }
   };
 
-  const importFilesIntoSession = async (selectedFiles, { includeHidden = true } = {}) => {
+  const importFilesIntoSession = async (
+    selectedFiles,
+    { includeHidden = true } = {},
+  ) => {
     if (!fileSystem) return;
     if (!selectedFiles?.length) return;
 
@@ -894,14 +942,20 @@ export default function Session() {
     saveFsAndBroadcast(newFs);
 
     if (importedCount > 0) {
-      const firstImported = Object.keys(newFs).find((path) => newFs[path]?.type === "file");
+      const firstImported = Object.keys(newFs).find(
+        (path) => newFs[path]?.type === "file",
+      );
       if (firstImported && !activeFile) {
         setActiveFile(firstImported);
-        setOpenFiles((prev) => (prev.includes(firstImported) ? prev : [...prev, firstImported]));
+        setOpenFiles((prev) =>
+          prev.includes(firstImported) ? prev : [...prev, firstImported],
+        );
       }
     }
 
-    const summary = [`Imported ${importedCount} file${importedCount === 1 ? "" : "s"}`];
+    const summary = [
+      `Imported ${importedCount} file${importedCount === 1 ? "" : "s"}`,
+    ];
     if (overwrittenCount > 0) summary.push(`${overwrittenCount} overwritten`);
     if (skippedCount > 0) summary.push(`${skippedCount} skipped`);
     toast.success(summary.join(" • "));
@@ -943,7 +997,9 @@ export default function Session() {
 
     if (entry.isFile) {
       const file = await fileFromEntry(entry);
-      const currentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      const currentPath = parentPath
+        ? `${parentPath}/${entry.name}`
+        : entry.name;
       return [
         {
           file,
@@ -955,7 +1011,9 @@ export default function Session() {
     }
 
     if (entry.isDirectory) {
-      const currentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      const currentPath = parentPath
+        ? `${parentPath}/${entry.name}`
+        : entry.name;
       const children = await readDirectoryEntries(entry);
       const flattened = await Promise.all(
         children.map((child) => flattenDroppedEntry(child, currentPath)),
@@ -1083,7 +1141,10 @@ export default function Session() {
       }
 
       if (node.type === "file") {
-        zip.file(relativePath, typeof node.content === "string" ? node.content : "");
+        zip.file(
+          relativePath,
+          typeof node.content === "string" ? node.content : "",
+        );
         added += 1;
       }
     });
@@ -1094,11 +1155,12 @@ export default function Session() {
     }
 
     const blob = await zip.generateAsync({ type: "blob" });
-    const safeName = (currentSession?.name || "session")
-      .trim()
-      .replace(/[^a-zA-Z0-9-_]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .toLowerCase() || "session";
+    const safeName =
+      (currentSession?.name || "session")
+        .trim()
+        .replace(/[^a-zA-Z0-9-_]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase() || "session";
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `${safeName}-${timestamp}.zip`;
 
@@ -1179,8 +1241,8 @@ export default function Session() {
       prev.map((p) =>
         p === oldPath || p.startsWith(`${oldPath}/`)
           ? p.replace(oldPath, newPath)
-          : p
-      )
+          : p,
+      ),
     );
 
     saveFsAndBroadcast(newFs);
@@ -1188,17 +1250,17 @@ export default function Session() {
 
   const handleDelete = (path) => {
     const newFs = { ...fileSystem };
-    
-    Object.keys(fileSystem).forEach(key => {
+
+    Object.keys(fileSystem).forEach((key) => {
       if (key === path || key.startsWith(`${path}/`)) {
         delete newFs[key];
-        setOpenFiles(prev => prev.filter(p => p !== key));
+        setOpenFiles((prev) => prev.filter((p) => p !== key));
         if (activeFile === key) setActiveFile(null);
       }
     });
-    
+
     saveFsAndBroadcast(newFs);
-    toast.success(`${path.split('/').pop()} deleted`);
+    toast.success(`${path.split("/").pop()} deleted`);
   };
 
   const handleMove = (draggedPath, targetFolderPath) => {
@@ -1230,8 +1292,8 @@ export default function Session() {
       prev.map((p) =>
         p === draggedPath || p.startsWith(`${draggedPath}/`)
           ? p.replace(draggedPath, newPath)
-          : p
-      )
+          : p,
+      ),
     );
 
     saveFsAndBroadcast(newFs);
@@ -1444,15 +1506,17 @@ export default function Session() {
                   </span>
                 </div>
 
-                {activeSidebarTab === "files" && fileSystem && (
+                {activeSidebarTab === "files" && effectiveFileSystem && (
                   <div className="flex-1 overflow-hidden">
                     <FileTree
-                      fileSystem={fileSystem}
+                      fileSystem={effectiveFileSystem}
                       activeFile={activeFile}
                       onSelectFile={(path) => {
                         setActiveFile(path);
-                        const content = fileSystem[path]?.content;
-                        setEditorCode(typeof content === "string" ? content : "");
+                        const content = effectiveFileSystem[path]?.content;
+                        setEditorCode(
+                          typeof content === "string" ? content : "",
+                        );
                         if (!openFiles.includes(path))
                           setOpenFiles([...openFiles, path]);
                       }}
@@ -1469,9 +1533,9 @@ export default function Session() {
                 )}
 
                 {activeSidebarTab === "search" && (
-                  <SearchPanel 
-                    fileSystem={fileSystem} 
-                    onResultClick={handleSearchResultClick} 
+                  <SearchPanel
+                    fileSystem={effectiveFileSystem}
+                    onResultClick={handleSearchResultClick}
                     autoFocus={activeSidebarTab === "search"}
                   />
                 )}
@@ -1537,7 +1601,11 @@ export default function Session() {
                     ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
                     : "border-neutral-700 text-neutral-300 hover:border-neutral-600"
                 }`}
-                title={isReplayViewer ? "Close replay viewer" : "Open replay in separate window"}
+                title={
+                  isReplayViewer
+                    ? "Close replay viewer"
+                    : "Open replay in separate window"
+                }
               >
                 {isReplayViewer ? "Close Replay" : "Replay"}
               </button>
@@ -1555,8 +1623,10 @@ export default function Session() {
                   <span className="text-[10px] text-neutral-400 whitespace-nowrap">
                     {replayIndex + 1}/{timelineEvents.length}
                   </span>
-                  <span className="text-[10px] text-neutral-500 whitespace-nowrap">
-                    {activeReplayEvent?.event_type || "snapshot"}
+                  <span className="text-[10px] text-neutral-500 whitespace-nowrap" title={activeReplayEvent?.path || activeReplayEvent?.event_type || "snapshot"}>
+                    {activeReplayEvent?.path
+                      ? activeReplayEvent.path.split("/").filter(Boolean).pop() || activeReplayEvent.event_type
+                      : activeReplayEvent?.event_type || "snapshot"}
                   </span>
                 </>
               )}
@@ -1566,32 +1636,43 @@ export default function Session() {
           {isReplayMode && timelineEvents.length > 0 && (
             <div className="h-28 bg-[#101014] border-b border-neutral-800 px-3 py-2 overflow-x-auto overflow-y-hidden">
               <div className="flex flex-row gap-2 h-full items-center">
-                {timelineEvents
-                  .map((event, absoluteIndex) => {
-                    const isSelected =
-                      selectedTimelineEventId === event.id ||
-                      replayIndex === absoluteIndex;
-                    const actorName =
-                      collaborators.find((c) => c.id === event.actor_user_id)?.name ||
-                      (event.actor_user_id === user?.id ? "You" : "Collaborator");
+                {timelineEvents.map((event, absoluteIndex) => {
+                  const isSelected =
+                    selectedTimelineEventId === event.id ||
+                    replayIndex === absoluteIndex;
+                  const actorName =
+                    event.payload?.actorName ||
+                    collaborators.find((c) => c.id === event.actor_user_id)?.name ||
+                    (event.actor_user_id === user?.id
+                      ? user?.user_metadata?.display_name || user?.email?.split("@")[0] || "You"
+                      : "Collaborator");
 
-                    return (
-                      <button
-                        key={event.id}
-                        id={`replay-btn-${absoluteIndex}`}
-                        onClick={() => applyReplayEventAt(absoluteIndex)}
-                        className={`flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center p-2 rounded border transition-colors ${
-                          isSelected
-                            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                            : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
-                        }`}
+                  return (
+                    <button
+                      key={event.id}
+                      id={`replay-btn-${absoluteIndex}`}
+                      onClick={() => applyReplayEventAt(absoluteIndex)}
+                      className={`flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center p-2 rounded border transition-colors ${
+                        isSelected
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                          : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
+                      }`}
+                    >
+                      <span className="font-semibold text-xs">
+                        #{absoluteIndex + 1}
+                      </span>
+                      <span className="text-[10px] truncate w-full text-center mt-1" title={event.path || event.event_type}>
+                        {event.path ? event.path.split("/").filter(Boolean).pop() || event.event_type : event.event_type}
+                      </span>
+                      <span
+                        className="text-[9px] text-neutral-500 truncate w-full text-center mt-1"
+                        title={actorName}
                       >
-                        <span className="font-semibold text-xs">#{absoluteIndex + 1}</span>
-                        <span className="text-[10px] truncate w-full text-center mt-1">{event.event_type}</span>
-                        <span className="text-[9px] text-neutral-500 truncate w-full text-center mt-1" title={actorName}>{actorName}</span>
-                      </button>
-                    );
-                  })}
+                        {actorName}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1636,7 +1717,9 @@ export default function Session() {
                   if (changes.length > 0) {
                     clearTimeout(saveTimerRef.current);
                     saveTimerRef.current = setTimeout(() => {
-                      useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
+                      useSessionStore
+                        .getState()
+                        .updateSessionFileSystem(sessionId, newFs);
                     }, 1500);
 
                     clearTimeout(timelineEventTimerRef.current);
@@ -1677,7 +1760,9 @@ export default function Session() {
               <div className="px-3 py-2 border-b border-neutral-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Wand2 className="w-3.5 h-3.5 text-accent-400" />
-                  <span className="text-xs font-semibold text-neutral-200">Inline AI Edit</span>
+                  <span className="text-xs font-semibold text-neutral-200">
+                    Inline AI Edit
+                  </span>
                 </div>
                 <button
                   onClick={closeInlineEdit}
@@ -1693,7 +1778,10 @@ export default function Session() {
                   ref={inlineEditInputRef}
                   value={inlineEdit.instruction}
                   onChange={(e) =>
-                    setInlineEdit((prev) => ({ ...prev, instruction: e.target.value }))
+                    setInlineEdit((prev) => ({
+                      ...prev,
+                      instruction: e.target.value,
+                    }))
                   }
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -1739,7 +1827,9 @@ export default function Session() {
                       <Button
                         size="sm"
                         onClick={handleGenerateInlineEdit}
-                        disabled={inlineEdit.loading || !inlineEdit.instruction.trim()}
+                        disabled={
+                          inlineEdit.loading || !inlineEdit.instruction.trim()
+                        }
                       >
                         {inlineEdit.loading ? (
                           <span className="inline-flex items-center gap-1.5">
@@ -1843,7 +1933,9 @@ export default function Session() {
       >
         <div className="space-y-4">
           <p className="text-sm text-neutral-300">
-            Include hidden files like <span className="font-mono text-accent-300">.env</span> and <span className="font-mono text-accent-300">.gitignore</span>?
+            Include hidden files like{" "}
+            <span className="font-mono text-accent-300">.env</span> and{" "}
+            <span className="font-mono text-accent-300">.gitignore</span>?
           </p>
           <div className="flex items-center gap-2 justify-end">
             <Button
@@ -1863,10 +1955,7 @@ export default function Session() {
             >
               Skip Hidden Files
             </Button>
-            <Button
-              size="sm"
-              onClick={() => handleHiddenFilesDecision(true)}
-            >
+            <Button size="sm" onClick={() => handleHiddenFilesDecision(true)}>
               Include Hidden Files
             </Button>
           </div>
@@ -1885,7 +1974,9 @@ export default function Session() {
           <div className="flex justify-end">
             <Button
               size="sm"
-              onClick={() => setDecisionJoke({ open: false, title: "", line: "" })}
+              onClick={() =>
+                setDecisionJoke({ open: false, title: "", line: "" })
+              }
             >
               Nice
             </Button>
