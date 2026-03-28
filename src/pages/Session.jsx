@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import JSZip from "jszip";
 import {
@@ -71,6 +71,9 @@ function SidebarIcon({ icon: Icon, label, active, onClick }) {
 export default function Session() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isReplayViewer =
+    new URLSearchParams(location.search).get("mode") === "replay";
   const { user, aiConfig, isAiConfigExpired, resetAiConfig } = useAuthStore();
   const { currentSession, joinSession, loading } = useSessionStore();
   const { collaborators, joinCollaboration, leaveCollaboration } =
@@ -107,7 +110,7 @@ export default function Session() {
   });
   const [timelineEvents, setTimelineEvents] = useState([]);
   const [timelineLoaded, setTimelineLoaded] = useState(false);
-  const [isReplayMode, setIsReplayMode] = useState(false);
+  const [isReplayMode, setIsReplayMode] = useState(isReplayViewer);
   const [replayIndex, setReplayIndex] = useState(-1);
   const [replayFileSystem, setReplayFileSystem] = useState(null);
   const [selectedTimelineEventId, setSelectedTimelineEventId] = useState(null);
@@ -440,10 +443,18 @@ export default function Session() {
   };
 
   const toggleReplayMode = () => {
+    if (!isReplayViewer) {
+      const replayUrl = `${window.location.origin}/session/${sessionId}?mode=replay`;
+      const replayWindow = window.open(replayUrl, "_blank", "noopener,noreferrer");
+      if (!replayWindow) {
+        toast.error("Popup blocked. Allow popups to open replay viewer.");
+      }
+      return;
+    }
+
     if (isReplayMode) {
-      setIsReplayMode(false);
-      setReplayIndex(-1);
-      setReplayFileSystem(null);
+      window.close();
+      navigate(`/session/${sessionId}`, { replace: true });
       return;
     }
 
@@ -459,6 +470,11 @@ export default function Session() {
   const activeReplayEvent =
     isReplayMode && replayIndex >= 0 ? timelineEvents[replayIndex] : null;
   const effectiveFileSystem = isReplayMode ? replayFileSystem : fileSystem;
+
+  useEffect(() => {
+    if (!isReplayViewer) return;
+    setIsReplayMode(true);
+  }, [isReplayViewer]);
 
   useEffect(() => {
     if (!inlineEdit.open) return;
@@ -622,9 +638,6 @@ export default function Session() {
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
 
-    // We ALWAYS need to join the collaboration channel for presence
-    joinCollaboration(sessionId, user);
-
     // ALWAYS fetch the latest session data from DB when initially entering
     // the route to ensure we have any changes made while we were offline/in dashboard.
     joinSession(sessionId).catch(() => {
@@ -632,12 +645,19 @@ export default function Session() {
       navigate("/dashboard");
     });
 
+    // Only live editing window joins collaboration channel.
+    if (!isReplayViewer) {
+      joinCollaboration(sessionId, user);
+    }
+
     return () => {
-      leaveCollaboration();
+      if (!isReplayViewer) {
+        leaveCollaboration();
+      }
       useSessionStore.getState().setCurrentSession(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, isReplayViewer]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -659,6 +679,15 @@ export default function Session() {
   }, []);
 
   useEffect(() => {
+    if (!isReplayViewer) return;
+    if (!timelineEvents.length) return;
+    if (replayIndex !== -1) return;
+
+    setIsReplayMode(true);
+    applyReplayEventAt(timelineEvents.length - 1);
+  }, [isReplayViewer, replayIndex, timelineEvents]);
+
+  useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
 
     const channel = useCollaborationStore.getState().channel;
@@ -672,9 +701,11 @@ export default function Session() {
 
     channel.on("broadcast", { event: "session-deleted" }, handleDeleted);
     return () => {};
-  }, [sessionId, navigate, leaveCollaboration, collaborators]);
+  }, [sessionId, navigate, leaveCollaboration, collaborators, isReplayViewer]);
 
   useEffect(() => {
+    if (isReplayViewer) return;
+
     useCollaborationStore
       .getState()
       .setOnFileSystemChange((newFs, senderId) => {
@@ -685,7 +716,7 @@ export default function Session() {
           setOpenFiles((prev) => prev.filter((f) => f !== activeFile));
         }
       });
-  }, [activeFile]);
+  }, [activeFile, isReplayViewer]);
 
   // FS Mutation handlers
   const saveFsAndBroadcast = (newFs, eventMeta = {}) => {
@@ -1471,9 +1502,9 @@ export default function Session() {
                     ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
                     : "border-neutral-700 text-neutral-300 hover:border-neutral-600"
                 }`}
-                title="Toggle time-travel replay"
+                title={isReplayViewer ? "Close replay viewer" : "Open replay in separate window"}
               >
-                {isReplayMode ? "Exit Replay" : "Replay"}
+                {isReplayViewer ? "Close Replay" : "Replay"}
               </button>
 
               {isReplayMode && timelineEvents.length > 0 && (
