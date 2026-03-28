@@ -21,6 +21,7 @@ const CodeEditor = forwardRef(function CodeEditor({
   const searchDecorationRef = useRef([]);
   const containerRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+  const fullSyncTimerRef = useRef(null);
   const isRemoteRef = useRef(false);
   const currentLineRef = useRef(null);
   const hasAppendedNewline = useRef(false);
@@ -301,7 +302,7 @@ const CodeEditor = forwardRef(function CodeEditor({
 
     styleEl.textContent = css;
 
-    return () => {};
+    return () => { };
   }, [cursors, lockedLines, user?.id]);
 
   const handleEditorDidMount = (editor, monaco) => {
@@ -488,8 +489,8 @@ const CodeEditor = forwardRef(function CodeEditor({
             propsRef.current.activeFile,
             newLine,
             currentUser.user_metadata?.display_name ||
-              currentUser.email?.split("@")[0] ||
-              "Anonymous",
+            currentUser.email?.split("@")[0] ||
+            "Anonymous",
           );
       }
 
@@ -501,8 +502,8 @@ const CodeEditor = forwardRef(function CodeEditor({
           position.lineNumber,
           position.column,
           currentUser.user_metadata?.display_name ||
-            currentUser.email?.split("@")[0] ||
-            "Anonymous",
+          currentUser.email?.split("@")[0] ||
+          "Anonymous",
         );
 
       if (propsRef.current.onCursorChange) {
@@ -528,8 +529,8 @@ const CodeEditor = forwardRef(function CodeEditor({
           propsRef.current.activeFile,
           null,
           currentUser.user_metadata?.display_name ||
-            currentUser.email?.split("@")[0] ||
-            "Anonymous",
+          currentUser.email?.split("@")[0] ||
+          "Anonymous",
         );
     });
 
@@ -576,6 +577,15 @@ const CodeEditor = forwardRef(function CodeEditor({
       useCollaborationStore
         .getState()
         .broadcastChanges(currentUser.id, activeFile, serializedChanges);
+
+      const isBulkEdit = event.changes.some(
+        (c) => c.range.startLineNumber === 1 && c.range.startColumn === 1 && c.rangeLength > 20
+      );
+      if (isBulkEdit) {
+        useCollaborationStore
+          .getState()
+          .broadcastFullSync(currentUser.id, activeFile, editor.getValue());
+      }
 
       if (onContentChange) {
         onContentChange(event.changes, editor.getValue());
@@ -643,6 +653,36 @@ const CodeEditor = forwardRef(function CodeEditor({
   ]);
 
   useEffect(() => {
+    useCollaborationStore.getState().setOnFullSync((content, senderId, path) => {
+      const monaco = monacoRef.current;
+      if (!monaco) return;
+
+      const targetModel = modelsRef.current[path];
+      if (!targetModel) return;
+
+      if (targetModel.getValue() !== content) {
+        isRemoteRef.current = true;
+        try {
+          const fullRange = targetModel.getFullModelRange();
+          targetModel.applyEdits([{
+            range: fullRange,
+            text: content
+          }]);
+
+          const { onContentChange, activeFile: currentActive } = propsRef.current;
+          if (path === currentActive && onContentChange) {
+            onContentChange([], content);
+          }
+        } catch (err) {
+          console.error("Failed to apply full sync:", err);
+        } finally {
+          requestAnimationFrame(() => {
+            isRemoteRef.current = false;
+          });
+        }
+      }
+    });
+
     useCollaborationStore.getState().setOnCodeChanges((changes, senderId, path) => {
       const monaco = monacoRef.current;
       if (!monaco) return;
@@ -711,33 +751,33 @@ const CodeEditor = forwardRef(function CodeEditor({
 
     if (activeFile === path) {
       requestAnimationFrame(() => {
-         editor.revealLineInCenter(line);
-         editor.setPosition({
-            lineNumber: line,
-            column: column
-         });
-         
-         searchDecorationRef.current = editor.deltaDecorations(
-           searchDecorationRef.current,
-           [{
-              range: new monaco.Range(
-                 line,
-                 column,
-                 line,
-                 column + length
-              ),
-              options: {
-                 className: 'search-match-highlight',
-                 isWholeLine: false,
-              }
-           }]
-         );
-         
-         setTimeout(() => {
-             if (editorRef.current) {
-                searchDecorationRef.current = editorRef.current.deltaDecorations(searchDecorationRef.current, []);
-             }
-         }, 1500);
+        editor.revealLineInCenter(line);
+        editor.setPosition({
+          lineNumber: line,
+          column: column
+        });
+
+        searchDecorationRef.current = editor.deltaDecorations(
+          searchDecorationRef.current,
+          [{
+            range: new monaco.Range(
+              line,
+              column,
+              line,
+              column + length
+            ),
+            options: {
+              className: 'search-match-highlight',
+              isWholeLine: false,
+            }
+          }]
+        );
+
+        setTimeout(() => {
+          if (editorRef.current) {
+            searchDecorationRef.current = editorRef.current.deltaDecorations(searchDecorationRef.current, []);
+          }
+        }, 1500);
       });
     }
   }, [navigationTarget, activeFile]);
