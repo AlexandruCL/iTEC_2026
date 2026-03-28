@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useCollaborationStore } from "@/stores/collaborationStore";
+import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
 
 const RUNNABLE_LANGUAGES = ["javascript", "python"];
@@ -134,6 +135,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   { language, code, hostUserId, sessionId, isOpen, onToggle },
   ref,
 ) {
+  const jumpscareImageUrl =
+    "https://mgmwkptgjpfqayqixcnf.supabase.co/storage/v1/object/public/easter-eggs/jumpscare.jpeg";
+
   const user = useAuthStore((state) => state.user);
   const setOnTerminalSnapshot = useCollaborationStore(
     (state) => state.setOnTerminalSnapshot,
@@ -160,9 +164,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const [inputValue, setInputValue] = useState("");
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [panelHeight, setPanelHeight] = useState(240);
+  const [showJumpscare, setShowJumpscare] = useState(false);
+  const [jumpscareAudioUrl, setJumpscareAudioUrl] = useState(
+    "https://www.myinstants.com/media/sounds/fnaf-1-jumpscare-sound.mp3",
+  );
 
   const inputRef = useRef(null);
   const outputEndRef = useRef(null);
+  const audioRef = useRef(null);
   const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
@@ -176,6 +185,16 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   useEffect(() => {
     terminalsRef.current = terminals;
   }, [terminals]);
+
+  // Pre-load audio into RAM for zero-latency jumpscare playback
+  useEffect(() => {
+    fetch("https://www.myinstants.com/media/sounds/fnaf-1-jumpscare-sound.mp3")
+      .then((res) => res.blob())
+      .then((blob) => {
+        setJumpscareAudioUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     activeTerminalIdRef.current = activeTerminalId;
@@ -986,16 +1005,30 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
       if (e.key === "l" && e.ctrlKey) {
         e.preventDefault();
-        if (canControlActiveTerminal) {
-          updateTerminal(
-            activeTerminal.id,
-            (terminal) => ({
-              ...terminal,
-              lines: [],
-            }),
-            true,
+        if (!canControlActiveTerminal) {
+          setShowJumpscare(true);
+          if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.volume = 1;
+            audioRef.current.play().catch(console.error);
+          }
+          setTimeout(() => {
+            setShowJumpscare(false);
+            if (audioRef.current) audioRef.current.pause();
+          }, 2000);
+          toast?.error(
+            "Cannot clear a terminal locked by another collaborator",
           );
+          return;
         }
+        updateTerminal(
+          activeTerminal.id,
+          (terminal) => ({
+            ...terminal,
+            lines: [],
+          }),
+          true,
+        );
         return;
       }
 
@@ -1069,6 +1102,16 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       if (!terminal) return;
 
       if (terminal.lockOwnerId && terminal.lockOwnerId !== user?.id) {
+        setShowJumpscare(true);
+        if (audioRef.current) {
+          audioRef.current.currentTime = 0;
+          audioRef.current.volume = 1;
+          audioRef.current.play().catch(console.error);
+        }
+        setTimeout(() => {
+          setShowJumpscare(false);
+          if (audioRef.current) audioRef.current.pause();
+        }, 2000);
         toast?.error("Cannot close a terminal locked by another collaborator");
         return;
       }
@@ -1107,7 +1150,22 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   );
 
   const handleClear = useCallback(() => {
-    if (!activeTerminal || !canControlActiveTerminal) return;
+    if (!activeTerminal) return;
+
+    if (!canControlActiveTerminal) {
+      setShowJumpscare(true);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.volume = 1;
+        audioRef.current.play().catch(console.error);
+      }
+      setTimeout(() => {
+        setShowJumpscare(false);
+        if (audioRef.current) audioRef.current.pause();
+      }, 2000);
+      toast?.error("Cannot clear a terminal locked by another collaborator");
+      return;
+    }
 
     updateTerminal(
       activeTerminal.id,
@@ -1652,7 +1710,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
               <button
                 onClick={handleClear}
-                disabled={!canControlActiveTerminal}
+                disabled={!activeTerminal}
                 className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title="Clear (Ctrl+L)"
               >
@@ -1663,8 +1721,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 onClick={() =>
                   activeTerminal && closeTerminal(activeTerminal.id)
                 }
-                disabled={!canControlActiveTerminal}
-                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
                 title="Close active terminal"
               >
                 <Square className="w-3 h-3" />
@@ -1779,6 +1836,32 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               </>
             )}
           </div>
+
+          <div
+            className={`fixed inset-0 z-[9999] bg-black flex items-center justify-center pointer-events-none transition-opacity duration-75 ${
+              showJumpscare ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            {jumpscareImageUrl && (
+              <img
+                src={jumpscareImageUrl}
+                alt="jumpscare"
+                /*
+                 * EDIT PHOTO PLACEMENT HERE:
+                 * - "w-full h-full object-cover": Fills and crops to fit the entire screen.
+                 * - "w-[70vw] h-[70vh] object-contain": Makes it a bit smaller and keeps original proportions.
+                 * - "fixed top-10 right-10 w-64 h-64 shadow-xl": Places it in the top right corner.
+                 */
+                className="w-[100vw] h-[120vh] object-contain"
+              />
+            )}
+          </div>
+          <audio
+            ref={audioRef}
+            src={jumpscareAudioUrl}
+            preload="auto"
+            style={{ display: "none" }}
+          />
         </motion.div>
       )}
     </AnimatePresence>
