@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Send, Sparkles, X, Loader2, Bot, User } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import AiCodeBlock from "@/components/ai/AiCodeBlock";
 
 const SYSTEM_GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-2.5-flash";
@@ -74,7 +75,26 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
               {
                 parts: [
                   {
-                    text: `You are an expert coding assistant. The user is working on the following code:\n\n\`\`\`\n${code}\n\`\`\`\n\nUser question: ${userMessage}\n\nProvide helpful, concise answers. If suggesting code changes, wrap them in code blocks with the appropriate language tag.`,
+                    text: [
+                      `You are an expert coding assistant embedded in a collaborative code editor.`,
+                      `The user is currently working on this code:`,
+                      ``,
+                      `\`\`\``,
+                      `${code}`,
+                      `\`\`\``,
+                      ``,
+                      `User message: ${userMessage}`,
+                      ``,
+                      `RULES:`,
+                      `1. If the user asks a QUESTION or wants an EXPLANATION, answer in plain text. You may include small inline code references using single backticks. Do NOT wrap explanations in fenced code blocks.`,
+                      `2. If the user asks you to GENERATE, WRITE, ADD, or CREATE code, provide ONLY the new code to be inserted — do NOT repeat or rewrite the existing code. Wrap the insertable code in a fenced block using the special prefix "suggestion:" followed by the language, like this:`,
+                      `   \`\`\`suggestion:javascript`,
+                      `   // new code here`,
+                      `   \`\`\``,
+                      `3. PRESERVE existing code. Only output the new snippet to add. Never rewrite the entire file unless the user explicitly asks to refactor or replace everything.`,
+                      `4. If you need to show a code example purely for explanation (not for insertion), use a regular fenced block WITHOUT the "suggestion:" prefix.`,
+                      `5. Be concise and helpful.`,
+                    ].join('\n'),
                   },
                 ],
               },
@@ -119,14 +139,31 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
     }
   };
 
-  // Simple markdown-like rendering for code blocks
+  // Markdown-like rendering — "suggestion:lang" blocks → interactive card, regular blocks → static
   const renderContent = (content) => {
     const parts = content.split(/(```[\s\S]*?```)/g);
     return parts.map((part, i) => {
       if (part.startsWith("```")) {
         const lines = part.slice(3, -3).split("\n");
-        const lang = lines[0].trim();
-        const code = lines.slice(lang ? 1 : 0).join("\n");
+        const langTag = lines[0].trim();
+        const isSuggestion = langTag.startsWith("suggestion:");
+        const lang = isSuggestion ? langTag.slice("suggestion:".length) : langTag;
+        const codeContent = lines.slice(langTag ? 1 : 0).join("\n");
+
+        if (isSuggestion) {
+          // Interactive Notion-style block — Accept / Dismiss
+          return (
+            <AiCodeBlock
+              key={i}
+              code={codeContent}
+              language={lang || null}
+              onAccept={(code) => onApplyCode?.(code)}
+              onDismiss={() => {}}
+            />
+          );
+        }
+
+        // Static read-only code block (explanatory)
         return (
           <div key={i} className="my-2 rounded-lg overflow-hidden border border-neutral-800">
             {lang && (
@@ -135,7 +172,7 @@ export default function AiChat({ isOpen, onClose, code, onApplyCode }) {
               </div>
             )}
             <pre className="px-3 py-2 bg-neutral-900/80 text-[13px] leading-5 font-mono text-neutral-200 overflow-x-auto">
-              <code>{code}</code>
+              <code>{codeContent}</code>
             </pre>
           </div>
         );

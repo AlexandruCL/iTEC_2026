@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useCallback, useState } from "react";
+import React, { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from "react";
 import Editor from "@monaco-editor/react";
 import { useCollaborationStore } from "@/stores/collaborationStore";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionStore } from "@/stores/sessionStore";
 
-export default function CodeEditor({
+const CodeEditor = forwardRef(function CodeEditor({
   sessionId,
   fileSystem,
   activeFile,
@@ -12,7 +12,7 @@ export default function CodeEditor({
   navigationTarget,
   onCursorChange,
   onContentChange,
-}) {
+}, ref) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const modelsRef = useRef({});
@@ -33,6 +33,42 @@ export default function CodeEditor({
 
   const { user } = useAuthStore();
   const { cursors, lockedLines } = useCollaborationStore();
+
+  // Expose imperative methods for AI code insertion
+  useImperativeHandle(ref, () => ({
+    insertTextAtCursor: (text) => {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (!editor || !monaco) return;
+
+      const position = editor.getPosition();
+      if (!position) return;
+
+      const range = new monaco.Range(
+        position.lineNumber,
+        position.column,
+        position.lineNumber,
+        position.column,
+      );
+
+      // executeEdits fires onDidChangeModelContent which broadcasts to collaborators
+      editor.executeEdits("ai-insert", [
+        { range, text, forceMoveMarkers: true },
+      ]);
+
+      // Move cursor to end of inserted text
+      const insertedLines = text.split("\n");
+      const lastLineLen = insertedLines[insertedLines.length - 1].length;
+      const newLine = position.lineNumber + insertedLines.length - 1;
+      const newCol =
+        insertedLines.length === 1
+          ? position.column + lastLineLen
+          : lastLineLen + 1;
+
+      editor.setPosition({ lineNumber: newLine, column: newCol });
+      editor.focus();
+    },
+  }), []);
 
   const updateRemoteCursors = useCallback(() => {
     const editor = editorRef.current;
@@ -743,4 +779,6 @@ export default function CodeEditor({
       />
     </div>
   );
-}
+});
+
+export default CodeEditor;
