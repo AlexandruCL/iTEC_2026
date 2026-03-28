@@ -9,6 +9,7 @@ const CodeEditor = forwardRef(function CodeEditor({
   fileSystem,
   activeFile,
   language = "javascript", // fallback
+  readOnly = false,
   navigationTarget,
   onCursorChange,
   onContentChange,
@@ -1015,6 +1016,7 @@ const CodeEditor = forwardRef(function CodeEditor({
           </div>
         }
         options={{
+          readOnly,
           fontFamily: "JetBrains Mono, Fira Code, monospace",
           fontLigatures: true,
           fontSize: 14,

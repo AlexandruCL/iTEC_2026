@@ -104,10 +104,18 @@ export default function Session() {
     selection: null,
     position: { x: 24, y: 120 },
   });
+  const [timelineEvents, setTimelineEvents] = useState([]);
+  const [timelineLoaded, setTimelineLoaded] = useState(false);
+  const [isReplayMode, setIsReplayMode] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(-1);
+  const [replayFileSystem, setReplayFileSystem] = useState(null);
+  const [selectedTimelineEventId, setSelectedTimelineEventId] = useState(null);
 
   const editorRef = useRef(null);
   const terminalRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const timelineEventTimerRef = useRef(null);
+  const timelineSeededRef = useRef(false);
   const filesInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const inlineEditInputRef = useRef(null);
@@ -353,6 +361,93 @@ export default function Session() {
     closeInlineEdit();
   };
 
+  const getFirstFilePath = (fsMap) =>
+    Object.keys(fsMap || {}).find((key) => fsMap[key]?.type === "file") || null;
+
+  const recordTimelineEvent = async ({
+    eventType,
+    path = null,
+    fsSnapshot,
+    extraPayload = {},
+  }) => {
+    if (!sessionId || !user?.id) return null;
+    if (!fsSnapshot || typeof fsSnapshot !== "object") return null;
+
+    const appendTimelineEventLocal = (eventRow) => {
+      if (!eventRow?.id) return;
+      setTimelineEvents((prev) => {
+        if (prev.some((existing) => existing.id === eventRow.id)) {
+          return prev;
+        }
+        const next = [...prev, eventRow].sort((a, b) => a.id - b.id);
+        return next;
+      });
+    };
+
+    const event = await useSessionStore.getState().appendTimelineEvent({
+      sessionId,
+      actorUserId: user.id,
+      eventType,
+      path,
+      payload: {
+        ...extraPayload,
+        fs: fsSnapshot,
+      },
+    });
+
+    if (event) appendTimelineEventLocal(event);
+
+    return event;
+  };
+
+  const applyReplayEventAt = (index) => {
+    if (index < 0 || index >= timelineEvents.length) return;
+
+    const event = timelineEvents[index];
+    const snapshotFs = event?.payload?.fs;
+    if (!snapshotFs || typeof snapshotFs !== "object") return;
+
+    setReplayIndex(index);
+    setReplayFileSystem(snapshotFs);
+    setSelectedTimelineEventId(event.id);
+
+    if (activeFile && !snapshotFs[activeFile]) {
+      const fallback = getFirstFilePath(snapshotFs);
+      setActiveFile(fallback);
+      setOpenFiles(fallback ? [fallback] : []);
+      return;
+    }
+
+    if (!activeFile) {
+      const fallback = getFirstFilePath(snapshotFs);
+      if (fallback) {
+        setActiveFile(fallback);
+        setOpenFiles((prev) => (prev.includes(fallback) ? prev : [...prev, fallback]));
+      }
+    }
+  };
+
+  const toggleReplayMode = () => {
+    if (isReplayMode) {
+      setIsReplayMode(false);
+      setReplayIndex(-1);
+      setReplayFileSystem(null);
+      return;
+    }
+
+    if (!timelineEvents.length) {
+      toast.error("No timeline events available yet.");
+      return;
+    }
+
+    setIsReplayMode(true);
+    applyReplayEventAt(timelineEvents.length - 1);
+  };
+
+  const activeReplayEvent =
+    isReplayMode && replayIndex >= 0 ? timelineEvents[replayIndex] : null;
+  const effectiveFileSystem = isReplayMode ? replayFileSystem : fileSystem;
+
   useEffect(() => {
     if (!inlineEdit.open) return;
     const timer = setTimeout(() => {
@@ -368,7 +463,65 @@ export default function Session() {
     setActiveFile(null);
     setOpenFiles([]);
     setNavigationTarget(null);
+    setTimelineEvents([]);
+    setTimelineLoaded(false);
+    setIsReplayMode(false);
+    setReplayIndex(-1);
+    setReplayFileSystem(null);
+    timelineSeededRef.current = false;
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !isSupabaseConfigured()) return;
+
+    let cancelled = false;
+    useSessionStore
+      .getState()
+      .fetchTimelineEvents(sessionId)
+      .then((events) => {
+        if (cancelled) return;
+        const ordered = (events || []).slice().sort((a, b) => a.id - b.id);
+        setTimelineEvents(ordered);
+        setTimelineLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !isSupabaseConfigured() || !supabase) return;
+
+    const timelineChannel = supabase
+      .channel(`timeline-events:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "session_timeline_events",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const eventRow = payload?.new;
+          if (!eventRow?.id) return;
+
+          setTimelineEvents((prev) => {
+            if (prev.some((existing) => existing.id === eventRow.id)) {
+              return prev;
+            }
+            return [...prev, eventRow].sort((a, b) => a.id - b.id);
+          });
+        },
+      );
+
+    timelineChannel.subscribe();
+
+    return () => {
+      supabase.removeChannel(timelineChannel);
+    };
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
     if (currentSession?.code && currentSession.id === sessionId && !fileSystem) {
@@ -420,6 +573,29 @@ export default function Session() {
       }
     }
   }, [currentSession, fileSystem]);
+
+  useEffect(() => {
+    if (!timelineLoaded || !fileSystem || !sessionId || !user?.id) return;
+    if (timelineEvents.length > 0) return;
+    if (timelineSeededRef.current) return;
+
+    timelineSeededRef.current = true;
+    recordTimelineEvent({
+      eventType: "session_snapshot",
+      path: activeFile,
+      fsSnapshot: fileSystem,
+      extraPayload: {
+        note: "Initial timeline snapshot",
+      },
+    });
+  }, [
+    activeFile,
+    fileSystem,
+    sessionId,
+    timelineEvents.length,
+    timelineLoaded,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!fileSystem || !activeFile || !fileSystem[activeFile]) {
@@ -500,10 +676,24 @@ export default function Session() {
   }, [activeFile]);
 
   // FS Mutation handlers
-  const saveFsAndBroadcast = (newFs) => {
+  const saveFsAndBroadcast = (newFs, eventMeta = {}) => {
+    if (isReplayMode) {
+      toast.error("Exit Replay Mode to edit files.");
+      return;
+    }
+
     setFileSystem(newFs);
     useCollaborationStore.getState().broadcastFileSystemChange(user.id, newFs);
     useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
+
+    if (user?.id) {
+      recordTimelineEvent({
+        eventType: eventMeta.eventType || "fs_update",
+        path: eventMeta.path || activeFile,
+        fsSnapshot: newFs,
+        extraPayload: eventMeta.extraPayload || {},
+      });
+    }
   };
 
   const isHiddenPath = (path) => {
@@ -1254,25 +1444,99 @@ export default function Session() {
           </div>
 
           {/* Breadcrumb */}
-          <div className="h-7 bg-neutral-950 border-b border-neutral-800 flex items-center px-4 gap-1.5 flex-shrink-0 text-[11px] text-neutral-500 font-mono tracking-tight">
-            {activeFile
-              ? activeFile.replace(/^\//, "").split("/").join("  >  ")
-              : "No File Selected"}
+          <div className="h-7 bg-neutral-950 border-b border-neutral-800 flex items-center justify-between px-4 gap-2 flex-shrink-0 text-[11px] text-neutral-500 font-mono tracking-tight">
+            <span className="truncate">
+              {activeFile
+                ? activeFile.replace(/^\//, "").split("/").join("  >  ")
+                : "No File Selected"}
+            </span>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={toggleReplayMode}
+                className={`px-2 py-0.5 rounded border transition-colors ${
+                  isReplayMode
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
+                    : "border-neutral-700 text-neutral-300 hover:border-neutral-600"
+                }`}
+                title="Toggle time-travel replay"
+              >
+                {isReplayMode ? "Exit Replay" : "Replay"}
+              </button>
+
+              {isReplayMode && timelineEvents.length > 0 && (
+                <>
+                  <input
+                    type="range"
+                    min={0}
+                    max={timelineEvents.length - 1}
+                    value={Math.max(0, replayIndex)}
+                    onChange={(e) => applyReplayEventAt(Number(e.target.value))}
+                    className="w-44 accent-amber-400"
+                  />
+                  <span className="text-[10px] text-neutral-400 whitespace-nowrap">
+                    {replayIndex + 1}/{timelineEvents.length}
+                  </span>
+                  <span className="text-[10px] text-neutral-500 whitespace-nowrap">
+                    {activeReplayEvent?.event_type || "snapshot"}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
+
+          {isReplayMode && timelineEvents.length > 0 && (
+            <div className="h-24 bg-[#101014] border-b border-neutral-800 px-3 py-2 overflow-y-auto">
+              <div className="flex flex-col gap-1">
+                {timelineEvents
+                  .slice(-25)
+                  .map((event, idx, arr) => {
+                    const absoluteIndex = timelineEvents.length - arr.length + idx;
+                    const isSelected =
+                      selectedTimelineEventId === event.id ||
+                      replayIndex === absoluteIndex;
+                    const actorName =
+                      collaborators.find((c) => c.id === event.actor_user_id)?.name ||
+                      (event.actor_user_id === user?.id ? "You" : "Collaborator");
+
+                    return (
+                      <button
+                        key={event.id}
+                        onClick={() => applyReplayEventAt(absoluteIndex)}
+                        className={`w-full text-left px-2 py-1 rounded text-[10px] border transition-colors ${
+                          isSelected
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                            : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
+                        }`}
+                      >
+                        <span className="font-semibold">#{absoluteIndex + 1}</span>{" "}
+                        <span>{event.event_type}</span>{" "}
+                        <span className="text-neutral-500">by {actorName}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Code editor */}
           <div className="flex-1 overflow-hidden">
-            {fileSystem && activeFile ? (
+            {effectiveFileSystem && activeFile ? (
               <CodeEditor
                 ref={editorRef}
                 sessionId={sessionId}
-                fileSystem={fileSystem}
+                fileSystem={effectiveFileSystem}
                 activeFile={activeFile}
+                readOnly={isReplayMode}
                 navigationTarget={navigationTarget}
                 onCursorChange={setCursorPos}
                 onRunSelectionInNewTerminal={handleRunSelectionInNewTerminal}
                 onInlineAiEditRequest={openInlineEditFromSelection}
                 onContentChange={(changes, newContent) => {
+                  if (isReplayMode) {
+                    return;
+                  }
+
                   const newFs = {
                     ...fileSystem,
                     [activeFile]: {
@@ -1289,6 +1553,18 @@ export default function Session() {
                     saveTimerRef.current = setTimeout(() => {
                       useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
                     }, 1500);
+
+                    clearTimeout(timelineEventTimerRef.current);
+                    timelineEventTimerRef.current = setTimeout(() => {
+                      recordTimelineEvent({
+                        eventType: "editor_patch",
+                        path: activeFile,
+                        fsSnapshot: newFs,
+                        extraPayload: {
+                          contentLength: newContent.length,
+                        },
+                      });
+                    }, 900);
                   }
                 }}
               />
@@ -1298,6 +1574,12 @@ export default function Session() {
               </div>
             )}
           </div>
+
+          {isReplayMode && (
+            <div className="h-7 bg-amber-500/10 border-t border-amber-500/30 px-3 flex items-center text-[11px] text-amber-300">
+              Replay mode is active. Editing is disabled until you exit replay.
+            </div>
+          )}
 
           {inlineEdit.open && (
             <div
