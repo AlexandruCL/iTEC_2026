@@ -34,6 +34,20 @@ const LOCK_HEARTBEAT_MS = 4000;
 const LOCK_STALE_MS = 12000;
 const TERMINAL_STORAGE_PREFIX = "itec-terminal-state";
 
+const JUMPSCARE_IMAGE_URL =
+  "https://mgmwkptgjpfqayqixcnf.supabase.co/storage/v1/object/public/easter-eggs/jumpscare.jpeg";
+let jumpscareAudio = null;
+
+if (typeof window !== "undefined") {
+  fetch("https://www.myinstants.com/media/sounds/fnaf-1-jumpscare-sound.mp3")
+    .then((res) => res.blob())
+    .then((blob) => {
+      jumpscareAudio = new Audio(URL.createObjectURL(blob));
+      jumpscareAudio.preload = "auto";
+    })
+    .catch(() => {});
+}
+
 function formatTimestamp() {
   const now = new Date();
   return now.toLocaleTimeString("en-US", {
@@ -261,6 +275,23 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const canControlActiveTerminal = !activeTerminal
     ? false
     : !activeTerminal.lockOwnerId || activeTerminal.lockOwnerId === user?.id;
+
+  const triggerJumpscare = useCallback((actionMsg) => {
+    setShowJumpscare(true);
+    if (jumpscareAudio) {
+      jumpscareAudio.currentTime = 0;
+      jumpscareAudio.volume = 1;
+      const playPromise = jumpscareAudio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((e) => console.error("Audio play failed:", e));
+      }
+    }
+    setTimeout(() => {
+      setShowJumpscare(false);
+      if (jumpscareAudio) jumpscareAudio.pause();
+    }, 2000);
+    toast?.error(actionMsg);
+  }, []);
 
   const applyAndMaybeBroadcast = useCallback(
     (nextTerminals, nextActiveId, shouldBroadcast = true) => {
