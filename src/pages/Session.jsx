@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -80,6 +80,18 @@ export default function Session() {
   const [activeFile, setActiveFile] = useState(null);
   const [openFiles, setOpenFiles] = useState([]);
   const [navigationTarget, setNavigationTarget] = useState(null);
+
+  const editorRef = useRef(null);
+
+  // AI Agent: insert accepted code at the user's cursor position
+  const handleApplyAiCode = (code) => {
+    if (editorRef.current?.insertTextAtCursor) {
+      editorRef.current.insertTextAtCursor(code);
+      toast.success("AI code inserted at cursor");
+    } else {
+      toast.error("No active editor — open a file first");
+    }
+  };
 
   // Reset local state when navigating between different sessions
   useEffect(() => {
@@ -625,6 +637,7 @@ export default function Session() {
           <div className="flex-1 overflow-hidden">
             {fileSystem && activeFile ? (
               <CodeEditor
+                ref={editorRef}
                 sessionId={sessionId}
                 fileSystem={fileSystem}
                 activeFile={activeFile}
@@ -662,6 +675,7 @@ export default function Session() {
           isOpen={isAiChatOpen}
           onClose={() => setIsAiChatOpen(false)}
           code={currentSession.code}
+          onApplyCode={handleApplyAiCode}
         />
       </div>
 
