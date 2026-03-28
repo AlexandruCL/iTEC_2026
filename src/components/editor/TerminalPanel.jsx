@@ -30,6 +30,7 @@ const MAX_LINES_PER_EVENT = 200;
 const MAX_LINE_LENGTH = 2000;
 const LOCK_HEARTBEAT_MS = 4000;
 const LOCK_STALE_MS = 12000;
+const TERMINAL_STORAGE_PREFIX = "itec-terminal-state";
 
 function formatTimestamp() {
   const now = new Date();
@@ -82,6 +83,7 @@ function createTerminal(index, ownerName) {
     createdAt: now,
     createdByName: ownerName || "Unknown",
     createdById: null,
+    isSnippetTerminal: false,
     retainLockAfterRun: false,
     lastActivityAt: now,
     lastHeartbeatAt: null,
@@ -109,6 +111,7 @@ function normalizeTerminal(terminal) {
     createdAt: terminal.createdAt || now,
     createdByName: terminal.createdByName || terminal.lockOwnerName || "Unknown",
     createdById: terminal.createdById || null,
+    isSnippetTerminal: terminal.isSnippetTerminal || false,
     retainLockAfterRun: terminal.retainLockAfterRun || false,
     lastActivityAt: terminal.lastActivityAt || terminal.updatedAt || now,
     lockToken: terminal.lockToken || null,
@@ -126,7 +129,7 @@ function formatRelativeTime(ts) {
 }
 
 const TerminalPanel = forwardRef(function TerminalPanel(
-  { language, code, hostUserId, isOpen, onToggle },
+  { language, code, hostUserId, sessionId, isOpen, onToggle },
   ref,
 ) {
   const user = useAuthStore((state) => state.user);
@@ -185,6 +188,11 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     () => terminals.find((t) => t.id === activeTerminalId) || null,
     [terminals, activeTerminalId],
   );
+
+  const terminalStorageKey = useMemo(() => {
+    if (!sessionId) return null;
+    return `${TERMINAL_STORAGE_PREFIX}:${sessionId}`;
+  }, [sessionId]);
 
   const resolvedHostId = useMemo(() => {
     if (!user?.id) return null;
@@ -726,6 +734,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         const nextTerminal = {
           ...createTerminal(terminals.length + 1, displayName),
           createdById: user?.id || null,
+          isSnippetTerminal: true,
           retainLockAfterRun: true,
           lockOwnerId: user?.id || null,
           lockOwnerName: displayName,
@@ -988,13 +997,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
       const filtered = terminals.filter((t) => t.id !== terminalId);
       if (filtered.length === 0) {
-        const single = [
-          {
-            ...createTerminal(1, displayName),
-            createdById: user?.id || null,
-          },
-        ];
-        applyAndMaybeBroadcast(single, single[0].id, true);
+        applyAndMaybeBroadcast([], null, true);
+        onToggle?.();
         return;
       }
 
@@ -1009,10 +1013,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       activeTerminalId,
       applyAndMaybeBroadcast,
       cleanupSocket,
-      displayName,
+      onToggle,
       stopExecution,
       terminals,
-      user?.id,
     ],
   );
 
@@ -1049,18 +1052,46 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   }, [isOpen, activeTerminalId]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!terminalStorageKey) return;
 
-    if (terminals.length === 0) {
-      const base = [
-        {
-          ...createTerminal(1, displayName),
-          createdById: user.id,
-        },
-      ];
-      applyAndMaybeBroadcast(base, base[0].id, true);
+    try {
+      const raw = localStorage.getItem(terminalStorageKey);
+      if (!raw) return;
+
+      const saved = JSON.parse(raw);
+      if (!saved || !Array.isArray(saved.terminals)) return;
+
+      const normalizedTerminals = saved.terminals.map(normalizeTerminal);
+      const savedActiveId =
+        saved.activeTerminalId &&
+        normalizedTerminals.some((terminal) => terminal.id === saved.activeTerminalId)
+          ? saved.activeTerminalId
+          : normalizedTerminals[0]?.id || null;
+
+      suppressNextBroadcastRef.current = true;
+      setTerminals(normalizedTerminals);
+      setActiveTerminalId(savedActiveId);
+    } catch {
+      localStorage.removeItem(terminalStorageKey);
     }
-  }, [applyAndMaybeBroadcast, displayName, terminals.length, user?.id]);
+  }, [terminalStorageKey]);
+
+  useEffect(() => {
+    if (!terminalStorageKey) return;
+
+    try {
+      localStorage.setItem(
+        terminalStorageKey,
+        JSON.stringify({
+          terminals,
+          activeTerminalId,
+          updatedAt: Date.now(),
+        }),
+      );
+    } catch {
+      // Ignore storage quota and serialization failures.
+    }
+  }, [activeTerminalId, terminalStorageKey, terminals]);
 
   useEffect(() => {
     setOnTerminalSnapshot((snapshot) => {
@@ -1371,7 +1402,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                   const isActive = terminal.id === activeTerminalId;
                   const lockedByOther =
                     !!terminal.lockOwnerId && terminal.lockOwnerId !== user?.id;
-                  const isSnippetTerminal = !!terminal.retainLockAfterRun;
+                  const isSnippetTerminal = !!terminal.isSnippetTerminal;
 
                   return (
                     <button
@@ -1411,7 +1442,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0">
-              {activeTerminal?.retainLockAfterRun && (
+              {activeTerminal?.isSnippetTerminal && (
                 <div className="hidden md:flex items-center gap-1.5 text-xs text-primary-400 px-2 py-1 rounded bg-primary-500/10 border border-primary-500/20 mr-1">
                   <span>Snippet Run</span>
                 </div>
@@ -1487,72 +1518,87 @@ const TerminalPanel = forwardRef(function TerminalPanel(
             className="flex-1 overflow-y-auto px-4 py-2 font-mono text-[13px] leading-6 select-text cursor-text"
             onClick={handleOutputClick}
           >
-            {activeTerminal && (
-              <div className="mb-2 px-2 py-1 rounded border border-neutral-800 bg-neutral-900/50 text-[11px] text-neutral-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>by {activeTerminal.createdByName || "Unknown"}</span>
-                <span className="text-neutral-700">•</span>
-                <span className="flex items-center gap-1">
-                  <Clock3 className="w-3 h-3" />
-                  active {formatRelativeTime(activeTerminal.lastActivityAt)}
-                </span>
-                {activeTerminal.lockOwnerId && (
-                  <>
-                    <span className="text-neutral-700">•</span>
-                    <span>
-                      lock {activeTerminal.lockOwnerId === user?.id ? "you" : activeTerminal.lockOwnerName || "collaborator"}
-                    </span>
-                  </>
-                )}
+            {!activeTerminal ? (
+              <div className="h-full min-h-[140px] flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-neutral-400 text-sm mb-3">No terminals open</p>
+                  <button
+                    onClick={createNewTerminal}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Create terminal
+                  </button>
+                </div>
               </div>
-            )}
-
-            {(activeTerminal?.lines || []).map((line) => (
-              <div key={line.id} className="flex gap-2 min-h-[1.5rem]">
-                {line.time && (
-                  <span className="text-neutral-700 select-none flex-shrink-0 text-[11px] mt-[2px]">
-                    {line.time}
+            ) : (
+              <>
+                <div className="mb-2 px-2 py-1 rounded border border-neutral-800 bg-neutral-900/50 text-[11px] text-neutral-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span>by {activeTerminal.createdByName || "Unknown"}</span>
+                  <span className="text-neutral-700">•</span>
+                  <span className="flex items-center gap-1">
+                    <Clock3 className="w-3 h-3" />
+                    active {formatRelativeTime(activeTerminal.lastActivityAt)}
                   </span>
-                )}
-                {!line.time && <span className="w-[52px] flex-shrink-0" />}
-                <span className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}>
-                  {line.text}
-                </span>
-              </div>
-            ))}
+                  {activeTerminal.lockOwnerId && (
+                    <>
+                      <span className="text-neutral-700">•</span>
+                      <span>
+                        lock {activeTerminal.lockOwnerId === user?.id ? "you" : activeTerminal.lockOwnerName || "collaborator"}
+                      </span>
+                    </>
+                  )}
+                </div>
 
-            <div className="flex gap-2 items-center min-h-[1.5rem]">
-              <span className="w-[52px] flex-shrink-0" />
-              <span className="text-accent-400 select-none">$</span>
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => {
-                  if (activeTerminal) acquireLock(activeTerminal.id);
-                }}
-                onBlur={() => {
-                  if (activeTerminal && !activeTerminal.isRunning) {
-                    releaseLock(activeTerminal.id, false);
-                  }
-                }}
-                className="flex-1 bg-transparent border-none outline-none text-neutral-100 caret-accent-400 text-[13px] font-mono placeholder-neutral-600"
-                placeholder={
-                  isLockedByOther
-                    ? `locked by ${activeTerminal?.lockOwnerName || "another collaborator"}`
-                    : activeTerminal?.isRunning
-                      ? "type stdin and press Enter..."
-                      : "type a command..."
-                }
-                disabled={false}
-                spellCheck={false}
-                autoComplete="off"
-                autoCorrect="off"
-              />
-            </div>
+                {activeTerminal.lines.map((line) => (
+                  <div key={line.id} className="flex gap-2 min-h-[1.5rem]">
+                    {line.time && (
+                      <span className="text-neutral-700 select-none flex-shrink-0 text-[11px] mt-[2px]">
+                        {line.time}
+                      </span>
+                    )}
+                    {!line.time && <span className="w-[52px] flex-shrink-0" />}
+                    <span className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}>
+                      {line.text}
+                    </span>
+                  </div>
+                ))}
 
-            <div ref={outputEndRef} />
+                <div className="flex gap-2 items-center min-h-[1.5rem]">
+                  <span className="w-[52px] flex-shrink-0" />
+                  <span className="text-accent-400 select-none">$</span>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => {
+                      acquireLock(activeTerminal.id);
+                    }}
+                    onBlur={() => {
+                      if (!activeTerminal.isRunning) {
+                        releaseLock(activeTerminal.id, false);
+                      }
+                    }}
+                    className="flex-1 bg-transparent border-none outline-none text-neutral-100 caret-accent-400 text-[13px] font-mono placeholder-neutral-600"
+                    placeholder={
+                      isLockedByOther
+                        ? `locked by ${activeTerminal.lockOwnerName || "another collaborator"}`
+                        : activeTerminal.isRunning
+                          ? "type stdin and press Enter..."
+                          : "type a command..."
+                    }
+                    disabled={false}
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCorrect="off"
+                  />
+                </div>
+
+                <div ref={outputEndRef} />
+              </>
+            )}
           </div>
         </motion.div>
       )}

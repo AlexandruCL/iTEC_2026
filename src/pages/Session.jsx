@@ -1400,6 +1400,7 @@ export default function Session() {
             language={currentSession.language}
             code={editorCode}
             hostUserId={currentSession.user_id}
+            sessionId={sessionId}
             isOpen={isTerminalOpen}
             onToggle={() => setIsTerminalOpen(false)}
           />
