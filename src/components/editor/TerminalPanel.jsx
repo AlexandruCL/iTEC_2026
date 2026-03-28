@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useCollaborationStore } from "@/stores/collaborationStore";
+import toast from "react-hot-toast";
 
 const RUNNABLE_LANGUAGES = ["javascript", "python"];
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8787";
@@ -1067,6 +1068,11 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       const terminal = terminals.find((t) => t.id === terminalId);
       if (!terminal) return;
 
+      if (terminal.lockOwnerId && terminal.lockOwnerId !== user?.id) {
+        toast?.error("Cannot close a terminal locked by another collaborator");
+        return;
+      }
+
       if (terminal.isRunning) {
         stopExecution(terminalId);
       }
@@ -1096,6 +1102,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       onToggle,
       stopExecution,
       terminals,
+      user?.id,
     ],
   );
 
@@ -1656,7 +1663,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 onClick={() =>
                   activeTerminal && closeTerminal(activeTerminal.id)
                 }
-                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+                disabled={!canControlActiveTerminal}
+                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title="Close active terminal"
               >
                 <Square className="w-3 h-3" />
