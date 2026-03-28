@@ -12,6 +12,7 @@
     "@monaco-editor/react": "^4.6.0",
     "@supabase/supabase-js": "^2.39.0",
     "clsx": "^2.1.0",
+    "gsap": "^3.14.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
     "motion": "^12.0.0",
