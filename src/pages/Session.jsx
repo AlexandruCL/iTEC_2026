@@ -46,6 +46,7 @@ const LANGUAGE_ICONS = {
 
 const SYSTEM_GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const DEFAULT_MODEL = "gemini-2.5-flash";
+const TIMELINE_SNAPSHOT_INTERVAL = 20;
 
 function getLangMeta(language) {
   return LANGUAGE_ICONS[language] || LANGUAGE_ICONS.default;
@@ -396,6 +397,17 @@ export default function Session() {
     });
 
     if (event) appendTimelineEventLocal(event);
+
+    if (
+      event &&
+      (eventType === "session_snapshot" || event.id % TIMELINE_SNAPSHOT_INTERVAL === 0)
+    ) {
+      useSessionStore.getState().appendTimelineSnapshot({
+        sessionId,
+        eventId: event.id,
+        fs: fsSnapshot,
+      });
+    }
 
     return event;
   };
