@@ -210,3 +210,29 @@ CREATE INDEX IF NOT EXISTS idx_timeline_events_session_created
 
 CREATE INDEX IF NOT EXISTS idx_timeline_snapshots_session_event
   ON public.session_timeline_snapshots(session_id, event_id);
+
+-- Optional: include timeline tables in Supabase Realtime publication.
+-- Required only if you want live timeline updates without refresh.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'session_timeline_events'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.session_timeline_events;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'session_timeline_snapshots'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.session_timeline_snapshots;
+  END IF;
+END
+$$;

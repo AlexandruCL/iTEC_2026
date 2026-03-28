@@ -109,6 +109,7 @@ export default function Session() {
   const [isReplayMode, setIsReplayMode] = useState(false);
   const [replayIndex, setReplayIndex] = useState(-1);
   const [replayFileSystem, setReplayFileSystem] = useState(null);
+  const [selectedTimelineEventId, setSelectedTimelineEventId] = useState(null);
 
   const editorRef = useRef(null);
   const terminalRef = useRef(null);
@@ -372,6 +373,17 @@ export default function Session() {
     if (!sessionId || !user?.id) return null;
     if (!fsSnapshot || typeof fsSnapshot !== "object") return null;
 
+    const appendTimelineEventLocal = (eventRow) => {
+      if (!eventRow?.id) return;
+      setTimelineEvents((prev) => {
+        if (prev.some((existing) => existing.id === eventRow.id)) {
+          return prev;
+        }
+        const next = [...prev, eventRow].sort((a, b) => a.id - b.id);
+        return next;
+      });
+    };
+
     const event = await useSessionStore.getState().appendTimelineEvent({
       sessionId,
       actorUserId: user.id,
@@ -383,9 +395,7 @@ export default function Session() {
       },
     });
 
-    if (event) {
-      setTimelineEvents((prev) => [...prev, event]);
-    }
+    if (event) appendTimelineEventLocal(event);
 
     return event;
   };
@@ -399,6 +409,7 @@ export default function Session() {
 
     setReplayIndex(index);
     setReplayFileSystem(snapshotFs);
+    setSelectedTimelineEventId(event.id);
 
     if (activeFile && !snapshotFs[activeFile]) {
       const fallback = getFirstFilePath(snapshotFs);
@@ -469,12 +480,46 @@ export default function Session() {
       .fetchTimelineEvents(sessionId)
       .then((events) => {
         if (cancelled) return;
-        setTimelineEvents(events || []);
+        const ordered = (events || []).slice().sort((a, b) => a.id - b.id);
+        setTimelineEvents(ordered);
         setTimelineLoaded(true);
       });
 
     return () => {
       cancelled = true;
+    };
+  }, [sessionId, user?.id]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !isSupabaseConfigured() || !supabase) return;
+
+    const timelineChannel = supabase
+      .channel(`timeline-events:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "session_timeline_events",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const eventRow = payload?.new;
+          if (!eventRow?.id) return;
+
+          setTimelineEvents((prev) => {
+            if (prev.some((existing) => existing.id === eventRow.id)) {
+              return prev;
+            }
+            return [...prev, eventRow].sort((a, b) => a.id - b.id);
+          });
+        },
+      );
+
+    timelineChannel.subscribe();
+
+    return () => {
+      supabase.removeChannel(timelineChannel);
     };
   }, [sessionId, user?.id]);
 
@@ -1439,6 +1484,40 @@ export default function Session() {
               )}
             </div>
           </div>
+
+          {isReplayMode && timelineEvents.length > 0 && (
+            <div className="h-24 bg-[#101014] border-b border-neutral-800 px-3 py-2 overflow-y-auto">
+              <div className="flex flex-col gap-1">
+                {timelineEvents
+                  .slice(-25)
+                  .map((event, idx, arr) => {
+                    const absoluteIndex = timelineEvents.length - arr.length + idx;
+                    const isSelected =
+                      selectedTimelineEventId === event.id ||
+                      replayIndex === absoluteIndex;
+                    const actorName =
+                      collaborators.find((c) => c.id === event.actor_user_id)?.name ||
+                      (event.actor_user_id === user?.id ? "You" : "Collaborator");
+
+                    return (
+                      <button
+                        key={event.id}
+                        onClick={() => applyReplayEventAt(absoluteIndex)}
+                        className={`w-full text-left px-2 py-1 rounded text-[10px] border transition-colors ${
+                          isSelected
+                            ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                            : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
+                        }`}
+                      >
+                        <span className="font-semibold">#{absoluteIndex + 1}</span>{" "}
+                        <span>{event.event_type}</span>{" "}
+                        <span className="text-neutral-500">by {actorName}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Code editor */}
           <div className="flex-1 overflow-hidden">
