@@ -178,6 +178,7 @@ export default function Session() {
 
     return () => {
       leaveCollaboration();
+      useSessionStore.getState().setCurrentSession(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
