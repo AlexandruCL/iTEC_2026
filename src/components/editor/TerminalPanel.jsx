@@ -109,7 +109,8 @@ function normalizeTerminal(terminal) {
   return {
     ...terminal,
     createdAt: terminal.createdAt || now,
-    createdByName: terminal.createdByName || terminal.lockOwnerName || "Unknown",
+    createdByName:
+      terminal.createdByName || terminal.lockOwnerName || "Unknown",
     createdById: terminal.createdById || null,
     isSnippetTerminal: terminal.isSnippetTerminal || false,
     retainLockAfterRun: terminal.retainLockAfterRun || false,
@@ -219,7 +220,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       return hostUserId;
     }
 
-    return Array.from(presentIds).sort((a, b) => a.localeCompare(b))[0] || user.id;
+    return (
+      Array.from(presentIds).sort((a, b) => a.localeCompare(b))[0] || user.id
+    );
   }, [collaborators, hostUserId, user?.id]);
 
   const isAuthoritativeHost = user?.id && resolvedHostId === user.id;
@@ -429,17 +432,24 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       }
 
       if (!terminal.activeExecutionId) {
-        addLines(terminalId, [{ text: "No active execution to stop", type: "muted" }]);
+        addLines(terminalId, [
+          { text: "No active execution to stop", type: "muted" },
+        ]);
         return;
       }
 
       try {
-        await fetch(`${BACKEND_URL}/v1/executions/${terminal.activeExecutionId}/stop`, {
-          method: "POST",
-        });
+        await fetch(
+          `${BACKEND_URL}/v1/executions/${terminal.activeExecutionId}/stop`,
+          {
+            method: "POST",
+          },
+        );
         addLines(terminalId, [{ text: "Stop requested", type: "system" }]);
       } catch (error) {
-        addLines(terminalId, [{ text: `Failed to stop execution: ${error.message}`, type: "error" }]);
+        addLines(terminalId, [
+          { text: `Failed to stop execution: ${error.message}`, type: "error" },
+        ]);
       }
     },
     [acquireLock, addLines],
@@ -481,7 +491,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
           throw new Error(body?.error || body?.reason || "stdin not accepted");
         }
       } catch (error) {
-        addLines(terminalId, [{ text: `Failed to send input: ${error.message}`, type: "error" }]);
+        addLines(terminalId, [
+          { text: `Failed to send input: ${error.message}`, type: "error" },
+        ]);
       }
     },
     [acquireLock, addLines],
@@ -519,7 +531,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       }
 
       if (terminal.isRunning) {
-        addLines(terminalId, [{ text: "Execution already running", type: "warn" }]);
+        addLines(terminalId, [
+          { text: "Execution already running", type: "warn" },
+        ]);
         return;
       }
 
@@ -574,7 +588,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
           );
 
           const wsBase = BACKEND_URL.replace(/^http/i, "ws");
-          const ws = new WebSocket(`${wsBase}/v1/executions/${executionId}/stream`);
+          const ws = new WebSocket(
+            `${wsBase}/v1/executions/${executionId}/stream`,
+          );
           socketsRef.current.set(terminalId, ws);
 
           ws.onmessage = (evt) => {
@@ -587,7 +603,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
             if (msg.type === "stdout" || msg.type === "stderr") {
               const output = (msg.chunk || "").replace(/\r/g, "");
-              const chunks = output.split("\n").filter((line) => line.length > 0);
+              const chunks = output
+                .split("\n")
+                .filter((line) => line.length > 0);
               if (chunks.length === 0) {
                 return;
               }
@@ -646,23 +664,34 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                   ...current,
                   isRunning: false,
                   activeExecutionId: null,
-                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
-                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+                  lockOwnerId: current.retainLockAfterRun
+                    ? current.lockOwnerId
+                    : null,
+                  lockOwnerName: current.retainLockAfterRun
+                    ? current.lockOwnerName
+                    : null,
                 }),
                 true,
               );
               cleanupSocket(terminalId);
             }
 
-            if (msg.type === "system" && (msg.stage === "failed" || msg.stage === "blocked")) {
+            if (
+              msg.type === "system" &&
+              (msg.stage === "failed" || msg.stage === "blocked")
+            ) {
               updateTerminal(
                 terminalId,
                 (current) => ({
                   ...current,
                   isRunning: false,
                   activeExecutionId: null,
-                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
-                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+                  lockOwnerId: current.retainLockAfterRun
+                    ? current.lockOwnerId
+                    : null,
+                  lockOwnerName: current.retainLockAfterRun
+                    ? current.lockOwnerName
+                    : null,
                 }),
                 true,
               );
@@ -671,15 +700,21 @@ const TerminalPanel = forwardRef(function TerminalPanel(
           };
 
           ws.onerror = () => {
-            addLines(terminalId, [{ text: "Execution stream connection failed", type: "error" }]);
+            addLines(terminalId, [
+              { text: "Execution stream connection failed", type: "error" },
+            ]);
             updateTerminal(
               terminalId,
               (current) => ({
                 ...current,
                 isRunning: false,
                 activeExecutionId: null,
-                lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
-                lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+                lockOwnerId: current.retainLockAfterRun
+                  ? current.lockOwnerId
+                  : null,
+                lockOwnerName: current.retainLockAfterRun
+                  ? current.lockOwnerName
+                  : null,
               }),
               true,
             );
@@ -693,33 +728,37 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 ...current,
                 isRunning: false,
                 activeExecutionId: null,
-                lockOwnerId:
-                  current.retainLockAfterRun
-                    ? current.lockOwnerId
-                    : current.isRunning
-                      ? null
-                      : current.lockOwnerId,
-                lockOwnerName:
-                  current.retainLockAfterRun
-                    ? current.lockOwnerName
-                    : current.isRunning
-                      ? null
-                      : current.lockOwnerName,
+                lockOwnerId: current.retainLockAfterRun
+                  ? current.lockOwnerId
+                  : current.isRunning
+                    ? null
+                    : current.lockOwnerId,
+                lockOwnerName: current.retainLockAfterRun
+                  ? current.lockOwnerName
+                  : current.isRunning
+                    ? null
+                    : current.lockOwnerName,
               }),
               true,
             );
           };
         })
         .catch((error) => {
-          addLines(terminalId, [{ text: `Failed to run: ${error.message}`, type: "error" }]);
+          addLines(terminalId, [
+            { text: `Failed to run: ${error.message}`, type: "error" },
+          ]);
           updateTerminal(
             terminalId,
             (current) => ({
               ...current,
               isRunning: false,
               activeExecutionId: null,
-              lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
-              lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+              lockOwnerId: current.retainLockAfterRun
+                ? current.lockOwnerId
+                : null,
+              lockOwnerName: current.retainLockAfterRun
+                ? current.lockOwnerName
+                : null,
             }),
             true,
           );
@@ -782,7 +821,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         return true;
       },
     }),
-    [addLines, applyAndMaybeBroadcast, displayName, executeCode, terminals, user?.id],
+    [
+      addLines,
+      applyAndMaybeBroadcast,
+      displayName,
+      executeCode,
+      terminals,
+      user?.id,
+    ],
   );
 
   const handleCommand = useCallback(
@@ -875,7 +921,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         },
       ]);
     },
-    [acquireLock, addLines, executeCode, releaseLock, stopExecution, updateTerminal],
+    [
+      acquireLock,
+      addLines,
+      executeCode,
+      releaseLock,
+      stopExecution,
+      updateTerminal,
+    ],
   );
 
   const handleKeyDown = useCallback(
@@ -903,7 +956,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         if (history.length === 0) return;
 
         const newIndex =
-          historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+          historyIndex === -1
+            ? history.length - 1
+            : Math.max(0, historyIndex - 1);
 
         setHistoryIndex(newIndex);
         setInputValue(history[newIndex]);
@@ -1026,7 +1081,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       }
 
       const nextActiveId =
-        activeTerminalId === terminalId ? filtered[filtered.length - 1].id : activeTerminalId;
+        activeTerminalId === terminalId
+          ? filtered[filtered.length - 1].id
+          : activeTerminalId;
 
       applyAndMaybeBroadcast(filtered, nextActiveId, true);
       setInputValue("");
@@ -1114,7 +1171,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       const normalizedTerminals = saved.terminals.map(normalizeTerminal);
       const savedActiveId =
         saved.activeTerminalId &&
-        normalizedTerminals.some((terminal) => terminal.id === saved.activeTerminalId)
+        normalizedTerminals.some(
+          (terminal) => terminal.id === saved.activeTerminalId,
+        )
           ? saved.activeTerminalId
           : normalizedTerminals[0]?.id || null;
 
@@ -1158,7 +1217,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
         if (
           currentActiveId &&
-          normalizedTerminals.some((terminal) => terminal.id === currentActiveId)
+          normalizedTerminals.some(
+            (terminal) => terminal.id === currentActiveId,
+          )
         ) {
           return currentActiveId;
         }
@@ -1196,9 +1257,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
       const stale = isLockStale(target);
       const canGrant =
-        !target.lockOwnerId ||
-        stale ||
-        target.lockOwnerId === payload.userId;
+        !target.lockOwnerId || stale || target.lockOwnerId === payload.userId;
 
       if (!canGrant) {
         broadcastTerminalLockGrant({
@@ -1213,14 +1272,16 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         return;
       }
 
-      const lockToken = payload.requestToken || `${payload.userId}-${Date.now()}`;
+      const lockToken =
+        payload.requestToken || `${payload.userId}-${Date.now()}`;
 
       updateTerminal(
         payload.terminalId,
         (terminal) => ({
           ...terminal,
           lockOwnerId: payload.userId,
-          lockOwnerName: payload.userName || terminal.lockOwnerName || "Collaborator",
+          lockOwnerName:
+            payload.userName || terminal.lockOwnerName || "Collaborator",
           lockToken,
           lastHeartbeatAt: Date.now(),
           lastActivityAt: Date.now(),
@@ -1256,12 +1317,12 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       }
 
       if (!payload.approved) {
-        addLines(payload.terminalId, [
-          {
-            text: `Lock denied${payload.deniedBy ? `: held by ${payload.deniedBy}` : ""}`,
-            type: "warn",
-          },
-        ]);
+        // addLines(payload.terminalId, [
+        //   {
+        //     text: `Lock denied${payload.deniedBy ? `: held by ${payload.deniedBy}` : ""}`,
+        //     type: "warn",
+        //   },
+        // ]);
         return;
       }
 
@@ -1346,7 +1407,12 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     }, 2000);
 
     return () => clearInterval(timer);
-  }, [activeTerminalId, broadcastTerminalSnapshot, isAuthoritativeHost, user?.id]);
+  }, [
+    activeTerminalId,
+    broadcastTerminalSnapshot,
+    isAuthoritativeHost,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1527,8 +1593,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               {isRunnable && (
                 <>
                   <button
-                    onClick={() => activeTerminal && executeCode(activeTerminal.id)}
-                    disabled={!activeTerminal || activeTerminal.isRunning || !canControlActiveTerminal}
+                    onClick={() =>
+                      activeTerminal && executeCode(activeTerminal.id)
+                    }
+                    disabled={
+                      !activeTerminal ||
+                      activeTerminal.isRunning ||
+                      !canControlActiveTerminal
+                    }
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title={`Run ${language} code`}
                   >
@@ -1536,8 +1608,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     Run
                   </button>
                   <button
-                    onClick={() => activeTerminal && stopExecution(activeTerminal.id)}
-                    disabled={!activeTerminal || !activeTerminal.isRunning || !canControlActiveTerminal}
+                    onClick={() =>
+                      activeTerminal && stopExecution(activeTerminal.id)
+                    }
+                    disabled={
+                      !activeTerminal ||
+                      !activeTerminal.isRunning ||
+                      !canControlActiveTerminal
+                    }
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title="Stop execution"
                   >
@@ -1574,7 +1652,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               </button>
 
               <button
-                onClick={() => activeTerminal && closeTerminal(activeTerminal.id)}
+                onClick={() =>
+                  activeTerminal && closeTerminal(activeTerminal.id)
+                }
                 className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
                 title="Close active terminal"
               >
@@ -1598,7 +1678,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
             {!activeTerminal ? (
               <div className="h-full min-h-[140px] flex items-center justify-center">
                 <div className="text-center">
-                  <p className="text-neutral-400 text-sm mb-3">No terminals open</p>
+                  <p className="text-neutral-400 text-sm mb-3">
+                    No terminals open
+                  </p>
                   <button
                     onClick={createNewTerminal}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 transition-colors"
@@ -1621,9 +1703,12 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     <>
                       <span className="text-neutral-700">•</span>
                       <span>
-                        lock {activeTerminal.lockOwnerId === user?.id
+                        lock{" "}
+                        {activeTerminal.lockOwnerId === user?.id
                           ? "you"
-                          : collaboratorNameById.get(activeTerminal.lockOwnerId) ||
+                          : collaboratorNameById.get(
+                              activeTerminal.lockOwnerId,
+                            ) ||
                             activeTerminal.lockOwnerName ||
                             activeTerminal.lockOwnerId}
                       </span>
@@ -1639,7 +1724,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                       </span>
                     )}
                     {!line.time && <span className="w-[52px] flex-shrink-0" />}
-                    <span className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}>
+                    <span
+                      className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}
+                    >
                       {line.text}
                     </span>
                   </div>
