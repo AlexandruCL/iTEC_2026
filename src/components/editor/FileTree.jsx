@@ -406,8 +406,21 @@ export default function FileTree({
   };
 
   const hasExternalFiles = (event) => {
-    const types = Array.from(event.dataTransfer?.types || []);
-    return types.includes('Files');
+    const dt = event.dataTransfer;
+    if (!dt) return false;
+
+    const types = Array.from(dt.types || []);
+    const hasKnownFileType =
+      types.includes('Files') ||
+      types.includes('application/x-moz-file') ||
+      types.includes('public.file-url');
+
+    if (hasKnownFileType) return true;
+
+    if ((dt.files?.length || 0) > 0) return true;
+
+    const items = Array.from(dt.items || []);
+    return items.some((item) => item.kind === 'file');
   };
 
   const handleDragOverCapture = (event) => {
