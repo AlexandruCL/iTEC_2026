@@ -604,22 +604,25 @@ const CodeEditor = forwardRef(function CodeEditor({
       const targetModel = modelsRef.current[path];
       if (!targetModel) return;
 
+      // Guard: mark as remote so onDidChangeModelContent won't re-broadcast
+      isRemoteRef.current = true;
+
       try {
         const edits = changes.map((change) => {
           const safeStartLine = Math.min(
-            change.range.startLineNumber,
+            Math.max(change.range.startLineNumber, 1),
             targetModel.getLineCount(),
           );
           const safeEndLine = Math.min(
-            change.range.endLineNumber,
+            Math.max(change.range.endLineNumber, 1),
             targetModel.getLineCount(),
           );
           const safeStartCol = Math.min(
-            change.range.startColumn,
+            Math.max(change.range.startColumn, 1),
             targetModel.getLineMaxColumn(safeStartLine),
           );
           const safeEndCol = Math.min(
-            change.range.endColumn,
+            Math.max(change.range.endColumn, 1),
             targetModel.getLineMaxColumn(safeEndLine),
           );
 
@@ -631,30 +634,27 @@ const CodeEditor = forwardRef(function CodeEditor({
               safeEndCol,
             ),
             text: change.text,
-            forceMoveMarkers: true,
           };
         });
 
-        // apply edits to specific background/foreground model
-        targetModel.pushEditOperations(
-          [],
-          edits,
-          () => null
-        );
+        // applyEdits modifies the model without undo-stack side-effects
+        targetModel.applyEdits(edits);
+
+        // Keep fileSystem React state in sync for the edited file
+        const { onContentChange, activeFile: currentActive } = propsRef.current;
+        if (path === currentActive && onContentChange) {
+          onContentChange([], targetModel.getValue());
+        }
       } catch (err) {
         console.error("Failed to apply remote edits:", err);
-      }
-
-      // If changes applied to active editor model, unblock
-      if (activeFile === path) {
+      } finally {
+        // Reset flag after the synchronous event handlers have fired
         requestAnimationFrame(() => {
           isRemoteRef.current = false;
         });
-      } else {
-        isRemoteRef.current = false;
       }
     });
-  }, [activeFile]);
+  }, []);
 
   useEffect(() => {
     const editor = editorRef.current;

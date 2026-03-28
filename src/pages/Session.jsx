@@ -82,6 +82,7 @@ export default function Session() {
   const [navigationTarget, setNavigationTarget] = useState(null);
 
   const editorRef = useRef(null);
+  const saveTimerRef = useRef(null);
 
   // AI Agent: insert accepted code at the user's cursor position
   const handleApplyAiCode = (code) => {
@@ -653,6 +654,14 @@ export default function Session() {
                   };
                   setFileSystem(newFs);
                   setEditorCode(newContent);
+
+                  // Only save to DB for local edits (changes array is non-empty)
+                  if (changes.length > 0) {
+                    clearTimeout(saveTimerRef.current);
+                    saveTimerRef.current = setTimeout(() => {
+                      useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
+                    }, 1500);
+                  }
                 }}
               />
             ) : (
