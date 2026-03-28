@@ -21,6 +21,8 @@ import {
   Layers,
   X,
   Plus,
+  Loader2,
+  Wand2,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionStore } from "@/stores/sessionStore";
@@ -41,6 +43,9 @@ const LANGUAGE_ICONS = {
   python: { icon: FileCode, color: "#3776ab", label: "PY" },
   default: { icon: FileCode, color: "#94a3b8", label: "FILE" },
 };
+
+const SYSTEM_GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 
 function getLangMeta(language) {
   return LANGUAGE_ICONS[language] || LANGUAGE_ICONS.default;
@@ -65,7 +70,7 @@ function SidebarIcon({ icon: Icon, label, active, onClick }) {
 export default function Session() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, aiConfig, isAiConfigExpired, resetAiConfig } = useAuthStore();
   const { currentSession, joinSession, loading } = useSessionStore();
   const { collaborators, joinCollaboration, leaveCollaboration } =
     useCollaborationStore();
@@ -90,12 +95,38 @@ export default function Session() {
     title: "",
     line: "",
   });
+  const [inlineEdit, setInlineEdit] = useState({
+    open: false,
+    instruction: "",
+    loading: false,
+    suggestion: "",
+    error: "",
+    selection: null,
+    position: { x: 24, y: 120 },
+  });
 
   const editorRef = useRef(null);
   const terminalRef = useRef(null);
   const saveTimerRef = useRef(null);
   const filesInputRef = useRef(null);
   const folderInputRef = useRef(null);
+  const inlineEditInputRef = useRef(null);
+
+  const expiredAiConfig = aiConfig.useCustom && isAiConfigExpired();
+  useEffect(() => {
+    if (expiredAiConfig) {
+      resetAiConfig();
+    }
+  }, [expiredAiConfig, resetAiConfig]);
+
+  const effectiveAiKey =
+    !expiredAiConfig && aiConfig.useCustom && aiConfig.apiKey
+      ? aiConfig.apiKey
+      : SYSTEM_GEMINI_KEY;
+  const effectiveAiModel =
+    !expiredAiConfig && aiConfig.useCustom && aiConfig.model
+      ? aiConfig.model
+      : DEFAULT_MODEL;
 
   // AI Agent: insert accepted code at the user's cursor position
   const handleApplyAiCode = (code) => {
@@ -135,6 +166,201 @@ export default function Session() {
       toast.success(`Snippet opened in a new terminal${linesLabel}`);
     });
   };
+
+  const getInlinePanelPosition = (anchor) => {
+    const panelWidth = 360;
+    const panelHeight = 240;
+    const margin = 12;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const baseX = anchor?.x ?? viewportWidth / 2 - panelWidth / 2;
+    const baseY = anchor?.y ?? 120;
+
+    const x = Math.max(margin, Math.min(baseX, viewportWidth - panelWidth - margin));
+
+    let y = baseY + 8;
+    if (y + panelHeight > viewportHeight - margin) {
+      y = (anchor?.y ?? viewportHeight / 2) - panelHeight - 12;
+    }
+    y = Math.max(margin, Math.min(y, viewportHeight - panelHeight - margin));
+
+    return { x, y };
+  };
+
+  const stripCodeFences = (text) => {
+    if (!text) return "";
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("```")) return trimmed;
+
+    const lines = trimmed.split("\n");
+    if (lines.length < 2) return trimmed;
+
+    const hasClosing = lines[lines.length - 1].trim().startsWith("```");
+    if (!hasClosing) return trimmed;
+
+    return lines.slice(1, -1).join("\n").trim();
+  };
+
+  const requestInlineAiReplacement = async ({ selectedCode, instruction, language, fullCode }) => {
+    if (!effectiveAiKey) {
+      throw new Error(
+        "No API key available. Add one in Settings -> AI Configuration.",
+      );
+    }
+
+    const prompt = [
+      "You are an expert coding assistant.",
+      "Task: Rewrite the selected code block according to the user's instruction.",
+      "Return only the replacement code for the selected block.",
+      "Do not return explanations.",
+      "Do not include markdown code fences.",
+      "Preserve indentation style and language syntax.",
+      "",
+      `Language: ${language || "plaintext"}`,
+      "",
+      "Selected code:",
+      selectedCode,
+      "",
+      `Instruction: ${instruction}`,
+      "",
+      "File context (for reference):",
+      fullCode,
+    ].join("\n");
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${effectiveAiModel}:generateContent?key=${effectiveAiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      const detail = errBody?.error?.message || `HTTP ${response.status}`;
+      throw new Error(`Gemini API error: ${detail}`);
+    }
+
+    const data = await response.json();
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) {
+      throw new Error("AI did not return any replacement.");
+    }
+
+    return stripCodeFences(aiText);
+  };
+
+  const openInlineEditFromSelection = (selectionPayload) => {
+    if (!selectionPayload?.text?.trim()) {
+      toast.error("Select code first, then press Ctrl+I.");
+      return;
+    }
+
+    setInlineEdit({
+      open: true,
+      instruction: "",
+      loading: false,
+      suggestion: "",
+      error: "",
+      selection: selectionPayload,
+      position: getInlinePanelPosition(selectionPayload.anchor),
+    });
+  };
+
+  const closeInlineEdit = () => {
+    setInlineEdit((prev) => ({
+      ...prev,
+      open: false,
+      loading: false,
+      suggestion: "",
+      error: "",
+    }));
+    editorRef.current?.focusEditor?.();
+  };
+
+  const handleGenerateInlineEdit = async () => {
+    const selection = inlineEdit.selection;
+    const instruction = inlineEdit.instruction.trim();
+
+    if (!selection?.text?.trim()) {
+      toast.error("No valid selection found.");
+      return;
+    }
+
+    if (!instruction) {
+      toast.error("Please enter an instruction.");
+      return;
+    }
+
+    setInlineEdit((prev) => ({ ...prev, loading: true, error: "", suggestion: "" }));
+
+    try {
+      const currentFileCode = fileSystem?.[activeFile]?.content || "";
+      const suggestion = await requestInlineAiReplacement({
+        selectedCode: selection.text,
+        instruction,
+        language: currentSession?.language,
+        fullCode: currentFileCode,
+      });
+
+      if (!suggestion.trim()) {
+        throw new Error("AI returned an empty replacement.");
+      }
+
+      setInlineEdit((prev) => ({
+        ...prev,
+        loading: false,
+        suggestion,
+      }));
+    } catch (error) {
+      setInlineEdit((prev) => ({
+        ...prev,
+        loading: false,
+        error: error.message || "Failed to generate replacement.",
+      }));
+    }
+  };
+
+  const handleApplyInlineReplacement = () => {
+    if (!inlineEdit.suggestion.trim()) return;
+    if (!inlineEdit.selection?.range) return;
+
+    if (inlineEdit.selection.path !== activeFile) {
+      toast.error("Open the original file before applying this replacement.");
+      return;
+    }
+
+    const applied = editorRef.current?.replaceRangeText?.(
+      inlineEdit.selection.range,
+      inlineEdit.suggestion,
+    );
+
+    if (!applied) {
+      toast.error("Could not apply replacement.");
+      return;
+    }
+
+    toast.success("Selected block replaced by AI.");
+    closeInlineEdit();
+  };
+
+  useEffect(() => {
+    if (!inlineEdit.open) return;
+    const timer = setTimeout(() => {
+      inlineEditInputRef.current?.focus();
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [inlineEdit.open]);
 
   // Reset local state when navigating between different sessions
   useEffect(() => {
@@ -1045,6 +1271,7 @@ export default function Session() {
                 navigationTarget={navigationTarget}
                 onCursorChange={setCursorPos}
                 onRunSelectionInNewTerminal={handleRunSelectionInNewTerminal}
+                onInlineAiEditRequest={openInlineEditFromSelection}
                 onContentChange={(changes, newContent) => {
                   const newFs = {
                     ...fileSystem,
@@ -1071,6 +1298,101 @@ export default function Session() {
               </div>
             )}
           </div>
+
+          {inlineEdit.open && (
+            <div
+              className="fixed z-[70] w-[22rem] rounded-xl border border-neutral-700 bg-neutral-900/95 backdrop-blur shadow-2xl shadow-black/40"
+              style={{
+                left: `${inlineEdit.position.x}px`,
+                top: `${inlineEdit.position.y}px`,
+              }}
+            >
+              <div className="px-3 py-2 border-b border-neutral-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wand2 className="w-3.5 h-3.5 text-accent-400" />
+                  <span className="text-xs font-semibold text-neutral-200">Inline AI Edit</span>
+                </div>
+                <button
+                  onClick={closeInlineEdit}
+                  className="p-1 rounded hover:bg-neutral-800 text-neutral-500 hover:text-white transition-colors"
+                  title="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="p-3 space-y-2.5">
+                <textarea
+                  ref={inlineEditInputRef}
+                  value={inlineEdit.instruction}
+                  onChange={(e) =>
+                    setInlineEdit((prev) => ({ ...prev, instruction: e.target.value }))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleGenerateInlineEdit();
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      closeInlineEdit();
+                    }
+                  }}
+                  rows={3}
+                  placeholder="Tell AI how to rewrite this selection..."
+                  className="w-full px-2.5 py-2 text-xs bg-neutral-950 border border-neutral-800 rounded-md text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-accent-500/50 focus:ring-1 focus:ring-accent-500/20 resize-none"
+                />
+
+                {inlineEdit.error && (
+                  <p className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-2.5 py-2">
+                    {inlineEdit.error}
+                  </p>
+                )}
+
+                {inlineEdit.suggestion && (
+                  <div className="rounded-md border border-neutral-800 bg-neutral-950/70">
+                    <div className="px-2.5 py-1.5 border-b border-neutral-800 text-[10px] uppercase tracking-wider text-neutral-500 font-semibold">
+                      Replacement preview
+                    </div>
+                    <pre className="max-h-32 overflow-auto px-2.5 py-2 text-[11px] leading-5 text-neutral-200 font-mono">
+                      <code>{inlineEdit.suggestion}</code>
+                    </pre>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-neutral-500">
+                    Enter instruction, then Generate. Ctrl/Cmd+Enter also works.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={closeInlineEdit}>
+                      Cancel
+                    </Button>
+                    {!inlineEdit.suggestion ? (
+                      <Button
+                        size="sm"
+                        onClick={handleGenerateInlineEdit}
+                        disabled={inlineEdit.loading || !inlineEdit.instruction.trim()}
+                      >
+                        {inlineEdit.loading ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Generating
+                          </span>
+                        ) : (
+                          "Generate"
+                        )}
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={handleApplyInlineReplacement}>
+                        Replace Selection
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Terminal Panel */}
           <TerminalPanel
