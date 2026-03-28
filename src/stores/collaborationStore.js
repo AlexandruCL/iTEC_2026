@@ -33,14 +33,21 @@ export const useCollaborationStore = create((set, get) => ({
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const collaborators = Object.values(state)
+        const uniqueUsers = new Map();
+
+        Object.values(state)
           .flat()
-          .map((p) => ({
-            id: p.user_id,
-            name: p.display_name,
-            color: p.color,
-          }));
-        set({ collaborators });
+          .forEach((p) => {
+            if (!uniqueUsers.has(p.user_id)) {
+              uniqueUsers.set(p.user_id, {
+                id: p.user_id,
+                name: p.display_name,
+                color: p.color,
+              });
+            }
+          });
+
+        set({ collaborators: Array.from(uniqueUsers.values()) });
       })
       .on("presence", { event: "join" }, ({ key }) => {
         console.log("User joined:", key);
