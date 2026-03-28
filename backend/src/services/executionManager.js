@@ -244,6 +244,7 @@ export class ExecutionManager {
         memoryMb: this.config.executionMemoryMb,
         cpus: this.config.executionCpus,
         timeoutMs: this.config.executionTimeoutMs,
+        maxOutputBytes: this.config.maxOutputBytes,
         onStdout: (chunk) => {
           this.emitEvent(executionId, {
             type: "stdout",
@@ -340,11 +341,6 @@ export class ExecutionManager {
     }
 
     execution.runtime.writeStdin(`${input}\n`);
-    this.emitEvent(executionId, {
-      type: "system",
-      stage: "running",
-      message: "stdin received",
-    });
 
     return { accepted: true };
   }

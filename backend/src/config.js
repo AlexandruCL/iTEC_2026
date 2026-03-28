@@ -24,5 +24,6 @@ export const config = {
   executionCpus: readFloat("EXECUTION_CPUS", 0.5),
   maxCodeSizeBytes: readInt("MAX_CODE_SIZE_BYTES", 200_000),
   maxFiles: readInt("MAX_FILES", 20),
+  maxOutputBytes: readInt("MAX_OUTPUT_BYTES", 200_000),
   logBacklogEvents: readInt("LOG_BACKLOG_EVENTS", 300),
 };

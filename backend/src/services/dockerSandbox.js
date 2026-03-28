@@ -111,6 +111,7 @@ export function runSandboxedContainer({
   memoryMb,
   cpus,
   timeoutMs,
+  maxOutputBytes,
   onStdout,
   onStderr,
   onSystemEvent,
@@ -146,22 +147,40 @@ export function runSandboxedContainer({
   });
 
   let timedOut = false;
+  let outputBytes = 0;
+  let stopIssued = false;
 
-  const timeoutHandle = setTimeout(async () => {
-    timedOut = true;
-    onSystemEvent?.("Execution timeout reached. Stopping container.");
+  const requestStop = async (reason) => {
+    if (stopIssued) return;
+    stopIssued = true;
+    onSystemEvent?.(reason);
     try {
       await stopContainer(containerName);
     } catch {
-      // Ignore stop failures after timeout.
+      // Best effort stop.
     }
+  };
+
+  const timeoutHandle = setTimeout(async () => {
+    timedOut = true;
+    await requestStop("Execution timeout reached. Stopping container.");
   }, timeoutMs);
 
   child.stdout.on("data", (chunk) => {
+    outputBytes += chunk.length;
+    if (maxOutputBytes > 0 && outputBytes > maxOutputBytes) {
+      requestStop("Execution stopped: output limit exceeded.");
+      return;
+    }
     onStdout?.(chunk.toString());
   });
 
   child.stderr.on("data", (chunk) => {
+    outputBytes += chunk.length;
+    if (maxOutputBytes > 0 && outputBytes > maxOutputBytes) {
+      requestStop("Execution stopped: output limit exceeded.");
+      return;
+    }
     onStderr?.(chunk.toString());
   });
 
