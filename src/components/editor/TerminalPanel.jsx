@@ -1,4 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -7,13 +15,21 @@ import {
   ChevronDown,
   Terminal as TerminalIcon,
   Loader2,
+  Plus,
+  Lock,
+  Unlock,
+  Clock3,
 } from "lucide-react";
+import { useAuthStore } from "@/stores/authStore";
+import { useCollaborationStore } from "@/stores/collaborationStore";
 
 const RUNNABLE_LANGUAGES = ["javascript", "python"];
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:8787";
 const MAX_TERMINAL_LINES = 1500;
 const MAX_LINES_PER_EVENT = 200;
 const MAX_LINE_LENGTH = 2000;
+const LOCK_HEARTBEAT_MS = 4000;
+const LOCK_STALE_MS = 12000;
 
 function formatTimestamp() {
   const now = new Date();
@@ -25,140 +41,398 @@ function formatTimestamp() {
   });
 }
 
-// Local helper commands for terminal UX.
 const BUILTIN_COMMANDS = {
   help: () => [
     { text: "Available commands:", type: "system" },
     { text: "  help          Show this help message", type: "log" },
-    { text: "  clear         Clear the terminal", type: "log" },
+    { text: "  clear         Clear the active terminal", type: "log" },
     { text: "  echo <text>   Print text to output", type: "log" },
     { text: "  whoami        Show current user", type: "log" },
     { text: "  date          Show current date/time", type: "log" },
     { text: "  run           Execute current editor code", type: "log" },
     { text: "  stop          Stop current execution", type: "log" },
-    { text: "", type: "log" },
-    {
-      text: "  Other commands will be executed in Docker when the backend is connected.",
-      type: "muted",
-    },
+    { text: "  lock          Acquire lock on terminal", type: "log" },
+    { text: "  unlock        Release terminal lock", type: "log" },
   ],
   whoami: () => [{ text: "developer@itecify", type: "log" }],
   date: () => [{ text: new Date().toString(), type: "log" }],
-  pwd: () => [{ text: "/workspace/project", type: "log" }],
-  ls: () => [{ text: "main.js  main.py  README.md", type: "log" }],
 };
 
-export default function TerminalPanel({ language, code, isOpen, onToggle }) {
-  const [lines, setLines] = useState([
-    {
-      id: "welcome",
-      text: "iTECify Terminal v1.0 — Type 'help' for available commands",
-      type: "system",
-      time: formatTimestamp(),
-    },
-  ]);
+function createWelcomeLine() {
+  return {
+    id: `welcome-${Date.now()}-${Math.random()}`,
+    text: "iTECify Shared Terminal v2.0 - Type 'help' for available commands",
+    type: "system",
+    time: formatTimestamp(),
+  };
+}
+
+function createTerminal(index, ownerName) {
+  const now = Date.now();
+  return {
+    id: `terminal-${now}-${Math.floor(Math.random() * 100000)}`,
+    name: `Terminal ${index}`,
+    lines: [createWelcomeLine()],
+    commandHistory: [],
+    isRunning: false,
+    activeExecutionId: null,
+    lockOwnerId: null,
+    lockOwnerName: ownerName || "Unknown",
+    lockToken: null,
+    createdAt: now,
+    createdByName: ownerName || "Unknown",
+    createdById: null,
+    retainLockAfterRun: false,
+    lastActivityAt: now,
+    lastHeartbeatAt: null,
+    updatedAt: now,
+  };
+}
+
+function sanitizeLines(newLines) {
+  const time = formatTimestamp();
+  return newLines.map((line, i) => ({
+    id: `${Date.now()}-${i}-${Math.random()}`,
+    text:
+      typeof line.text === "string" && line.text.length > MAX_LINE_LENGTH
+        ? `${line.text.slice(0, MAX_LINE_LENGTH)} ...[truncated]`
+        : line.text,
+    type: line.type || "log",
+    time: i === 0 ? time : "",
+  }));
+}
+
+function normalizeTerminal(terminal) {
+  const now = Date.now();
+  return {
+    ...terminal,
+    createdAt: terminal.createdAt || now,
+    createdByName: terminal.createdByName || terminal.lockOwnerName || "Unknown",
+    createdById: terminal.createdById || null,
+    retainLockAfterRun: terminal.retainLockAfterRun || false,
+    lastActivityAt: terminal.lastActivityAt || terminal.updatedAt || now,
+    lockToken: terminal.lockToken || null,
+    lastHeartbeatAt: terminal.lastHeartbeatAt || null,
+  };
+}
+
+function formatRelativeTime(ts) {
+  if (!ts) return "n/a";
+  const diff = Date.now() - ts;
+  if (diff < 1000) return "just now";
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  return `${Math.floor(diff / 3_600_000)}h ago`;
+}
+
+const TerminalPanel = forwardRef(function TerminalPanel(
+  { language, code, hostUserId, isOpen, onToggle },
+  ref,
+) {
+  const user = useAuthStore((state) => state.user);
+  const setOnTerminalSnapshot = useCollaborationStore(
+    (state) => state.setOnTerminalSnapshot,
+  );
+  const broadcastTerminalSnapshot = useCollaborationStore(
+    (state) => state.broadcastTerminalSnapshot,
+  );
+  const setOnTerminalLockRequest = useCollaborationStore(
+    (state) => state.setOnTerminalLockRequest,
+  );
+  const setOnTerminalLockGrant = useCollaborationStore(
+    (state) => state.setOnTerminalLockGrant,
+  );
+  const broadcastTerminalLockRequest = useCollaborationStore(
+    (state) => state.broadcastTerminalLockRequest,
+  );
+  const broadcastTerminalLockGrant = useCollaborationStore(
+    (state) => state.broadcastTerminalLockGrant,
+  );
+  const collaborators = useCollaborationStore((state) => state.collaborators);
+
+  const [terminals, setTerminals] = useState([]);
+  const [activeTerminalId, setActiveTerminalId] = useState(null);
   const [inputValue, setInputValue] = useState("");
-  const [commandHistory, setCommandHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isRunning, setIsRunning] = useState(false);
   const [panelHeight, setPanelHeight] = useState(240);
-  const [activeExecutionId, setActiveExecutionId] = useState(null);
 
   const inputRef = useRef(null);
   const outputEndRef = useRef(null);
   const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
-  const wsRef = useRef(null);
+  const socketsRef = useRef(new Map());
+  const suppressNextBroadcastRef = useRef(false);
+  const terminalsRef = useRef([]);
+
+  useEffect(() => {
+    terminalsRef.current = terminals;
+  }, [terminals]);
+
+  const displayName =
+    user?.user_metadata?.display_name ||
+    user?.email?.split("@")[0] ||
+    "Anonymous";
 
   const isRunnable = RUNNABLE_LANGUAGES.includes(language);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (outputEndRef.current) {
-      outputEndRef.current.scrollIntoView({ behavior: "smooth" });
+  const activeTerminal = useMemo(
+    () => terminals.find((t) => t.id === activeTerminalId) || null,
+    [terminals, activeTerminalId],
+  );
+
+  const resolvedHostId = useMemo(() => {
+    if (!user?.id) return null;
+
+    const presentIds = new Set(collaborators.map((c) => c.id));
+    presentIds.add(user.id);
+
+    if (hostUserId && presentIds.has(hostUserId)) {
+      return hostUserId;
     }
-  }, [lines]);
 
-  // Focus input when terminal opens
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+    return Array.from(presentIds).sort((a, b) => a.localeCompare(b))[0] || user.id;
+  }, [collaborators, hostUserId, user?.id]);
+
+  const isAuthoritativeHost = user?.id && resolvedHostId === user.id;
+
+  const isLockedByOther =
+    !!activeTerminal?.lockOwnerId && activeTerminal.lockOwnerId !== user?.id;
+
+  const canControlActiveTerminal = !activeTerminal
+    ? false
+    : !activeTerminal.lockOwnerId || activeTerminal.lockOwnerId === user?.id;
+
+  const applyAndMaybeBroadcast = useCallback(
+    (nextTerminals, nextActiveId, shouldBroadcast = true) => {
+      setTerminals(nextTerminals);
+      setActiveTerminalId(nextActiveId);
+
+      if (shouldBroadcast && user?.id) {
+        broadcastTerminalSnapshot(user.id, {
+          terminals: nextTerminals,
+          activeTerminalId: nextActiveId,
+          updatedAt: Date.now(),
+        });
+      }
+    },
+    [broadcastTerminalSnapshot, user?.id],
+  );
+
+  const updateTerminal = useCallback(
+    (terminalId, updater, shouldBroadcast = true) => {
+      setTerminals((prev) => {
+        const next = prev.map((terminal) =>
+          terminal.id === terminalId
+            ? { ...updater(terminal), updatedAt: Date.now() }
+            : terminal,
+        );
+
+        if (shouldBroadcast && user?.id) {
+          broadcastTerminalSnapshot(user.id, {
+            terminals: next,
+            activeTerminalId,
+            updatedAt: Date.now(),
+          });
+        }
+
+        return next;
+      });
+    },
+    [activeTerminalId, broadcastTerminalSnapshot, user?.id],
+  );
+
+  const addLines = useCallback(
+    (terminalId, newLines, shouldBroadcast = true) => {
+      const prepared = sanitizeLines(newLines);
+
+      updateTerminal(
+        terminalId,
+        (terminal) => {
+          const merged = [...terminal.lines, ...prepared];
+          const capped =
+            merged.length > MAX_TERMINAL_LINES
+              ? merged.slice(-MAX_TERMINAL_LINES)
+              : merged;
+
+          return {
+            ...terminal,
+            lines: capped,
+            lastActivityAt: Date.now(),
+          };
+        },
+        shouldBroadcast,
+      );
+    },
+    [updateTerminal],
+  );
+
+  const cleanupSocket = useCallback((terminalId) => {
+    const ws = socketsRef.current.get(terminalId);
+    if (ws) {
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+      socketsRef.current.delete(terminalId);
     }
-  }, [isOpen]);
+  }, []);
 
-  const addLines = useCallback((newLines) => {
-    const time = formatTimestamp();
-    setLines((prev) => {
-      const merged = [
-        ...prev,
-        ...newLines.map((line, i) => ({
-        id: Date.now() + i + Math.random(),
-        text:
-          typeof line.text === "string" && line.text.length > MAX_LINE_LENGTH
-            ? `${line.text.slice(0, MAX_LINE_LENGTH)} ...[truncated]`
-            : line.text,
-        type: line.type || "log",
-        time: i === 0 ? time : "",
-      })),
-      ];
+  const isLockStale = useCallback((terminal) => {
+    if (!terminal?.lockOwnerId) return false;
+    if (!terminal.lastHeartbeatAt) return false;
+    return Date.now() - terminal.lastHeartbeatAt > LOCK_STALE_MS;
+  }, []);
 
-      if (merged.length <= MAX_TERMINAL_LINES) {
-        return merged;
+  const releaseLock = useCallback(
+    (terminalId, force = false) => {
+      if (!user?.id) return;
+
+      updateTerminal(
+        terminalId,
+        (terminal) => {
+          const canRelease = terminal.lockOwnerId === user.id;
+          if (!canRelease) return terminal;
+          if (!force && terminal.isRunning) return terminal;
+
+          return {
+            ...terminal,
+            lockOwnerId: null,
+            lockOwnerName: null,
+            lockToken: null,
+            lastHeartbeatAt: null,
+            lastActivityAt: Date.now(),
+          };
+        },
+        true,
+      );
+    },
+    [updateTerminal, user?.id],
+  );
+
+  const acquireLock = useCallback(
+    (terminalId) => {
+      if (!user?.id) return "denied";
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
+      if (!terminal) return "denied";
+
+      const stale = isLockStale(terminal);
+      const token = `${user.id}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+
+      if (!isAuthoritativeHost && terminal.lockOwnerId !== user.id) {
+        broadcastTerminalLockRequest({
+          userId: user.id,
+          userName: displayName,
+          terminalId,
+          requestToken: token,
+          requestedAt: Date.now(),
+        });
+        return "requested";
       }
 
-      return merged.slice(-MAX_TERMINAL_LINES);
-    });
-  }, []);
+      if (terminal.lockOwnerId && terminal.lockOwnerId !== user.id && !stale) {
+        return "denied";
+      }
 
-  const cleanupSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.onopen = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror = null;
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, []);
+      updateTerminal(
+        terminalId,
+        (current) => ({
+          ...current,
+          lockOwnerId: user.id,
+          lockOwnerName: displayName,
+          lockToken: token,
+          lastHeartbeatAt: Date.now(),
+          lastActivityAt: Date.now(),
+        }),
+        true,
+      );
 
-  const normalizeLanguage = useCallback((value) => {
-    return value;
-  }, []);
+      if (isAuthoritativeHost) {
+        broadcastTerminalLockGrant({
+          userId: user.id,
+          toUserId: user.id,
+          toUserName: displayName,
+          terminalId,
+          approved: true,
+          lockToken: token,
+          grantedAt: Date.now(),
+        });
+      }
 
-  const stopExecution = useCallback(async () => {
-    if (!activeExecutionId) {
-      addLines([{ text: "No active execution to stop", type: "muted" }]);
-      return;
-    }
+      return "acquired";
+    },
+    [
+      broadcastTerminalLockGrant,
+      broadcastTerminalLockRequest,
+      displayName,
+      isAuthoritativeHost,
+      isLockStale,
+      updateTerminal,
+      user?.id,
+    ],
+  );
 
-    try {
-      await fetch(`${BACKEND_URL}/v1/executions/${activeExecutionId}/stop`, {
-        method: "POST",
-      });
-      addLines([{ text: "▸ Stop requested", type: "system" }]);
-    } catch (error) {
-      addLines([
-        {
-          text: `Failed to stop execution: ${error.message}`,
-          type: "error",
-        },
-      ]);
-    }
-  }, [activeExecutionId, addLines]);
+  const stopExecution = useCallback(
+    async (terminalId) => {
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
+      if (!terminal) return;
 
-  const sendRuntimeInput = useCallback(
-    async (input) => {
-      if (!activeExecutionId) {
+      const lockOutcome = acquireLock(terminalId);
+      if (lockOutcome !== "acquired") {
+        addLines(terminalId, [
+          {
+            text:
+              lockOutcome === "requested"
+                ? "Lock requested. Try again once granted."
+                : "Terminal is locked by another collaborator",
+            type: "warn",
+          },
+        ]);
         return;
       }
 
-      // Echo user stdin immediately so ordering matches what the user typed.
-      addLines([{ text: `> ${input}`, type: "input" }]);
+      if (!terminal.activeExecutionId) {
+        addLines(terminalId, [{ text: "No active execution to stop", type: "muted" }]);
+        return;
+      }
+
+      try {
+        await fetch(`${BACKEND_URL}/v1/executions/${terminal.activeExecutionId}/stop`, {
+          method: "POST",
+        });
+        addLines(terminalId, [{ text: "Stop requested", type: "system" }]);
+      } catch (error) {
+        addLines(terminalId, [{ text: `Failed to stop execution: ${error.message}`, type: "error" }]);
+      }
+    },
+    [acquireLock, addLines],
+  );
+
+  const sendRuntimeInput = useCallback(
+    async (terminalId, input) => {
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
+      if (!terminal?.activeExecutionId) return;
+
+      const lockOutcome = acquireLock(terminalId);
+      if (lockOutcome !== "acquired") {
+        addLines(terminalId, [
+          {
+            text:
+              lockOutcome === "requested"
+                ? "Lock requested. Try again once granted."
+                : "Terminal is locked by another collaborator",
+            type: "warn",
+          },
+        ]);
+        return;
+      }
+
+      addLines(terminalId, [{ text: `> ${input}`, type: "input" }]);
 
       try {
         const response = await fetch(
-          `${BACKEND_URL}/v1/executions/${activeExecutionId}/input`,
+          `${BACKEND_URL}/v1/executions/${terminal.activeExecutionId}/input`,
           {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -171,266 +445,478 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
           throw new Error(body?.error || body?.reason || "stdin not accepted");
         }
       } catch (error) {
-        addLines([{ text: `Failed to send input: ${error.message}`, type: "error" }]);
+        addLines(terminalId, [{ text: `Failed to send input: ${error.message}`, type: "error" }]);
       }
     },
-    [activeExecutionId, addLines],
+    [acquireLock, addLines],
   );
 
-  const executeCode = useCallback(() => {
-    if (!isRunnable) {
-      addLines([
+  const executeCode = useCallback(
+    (terminalId, codeOverride = null, runMode = "full") => {
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
+      if (!terminal) return;
+
+      const codeToRun = typeof codeOverride === "string" ? codeOverride : code;
+
+      if (!isRunnable) {
+        addLines(terminalId, [
+          {
+            text: `${language} execution is not supported yet. Use JavaScript or Python.`,
+            type: "warn",
+          },
+        ]);
+        return;
+      }
+
+      const lockOutcome = acquireLock(terminalId);
+      if (lockOutcome !== "acquired") {
+        addLines(terminalId, [
+          {
+            text:
+              lockOutcome === "requested"
+                ? "Lock requested. Try again once granted."
+                : "Terminal is locked by another collaborator",
+            type: "warn",
+          },
+        ]);
+        return;
+      }
+
+      if (terminal.isRunning) {
+        addLines(terminalId, [{ text: "Execution already running", type: "warn" }]);
+        return;
+      }
+
+      updateTerminal(
+        terminalId,
+        (current) => ({
+          ...current,
+          isRunning: true,
+          lockOwnerId: user?.id || null,
+          lockOwnerName: displayName,
+        }),
+        true,
+      );
+
+      addLines(terminalId, [
         {
-          text: `⚠ ${language} execution is not supported yet. Use JavaScript or Python.`,
-          type: "warn",
+          text:
+            runMode === "snippet"
+              ? `Running selected ${language} snippet...`
+              : `Running ${language}...`,
+          type: "system",
         },
       ]);
-      return;
-    }
 
-    if (isRunning) {
-      addLines([{ text: "Execution already running", type: "warn" }]);
-      return;
-    }
+      cleanupSocket(terminalId);
 
-    setIsRunning(true);
-    addLines([{ text: `▸ Running ${language}...`, type: "system" }]);
-
-    cleanupSocket();
-
-    fetch(`${BACKEND_URL}/v1/executions`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        language: normalizeLanguage(language),
-        code,
-      }),
-    })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) {
-          throw new Error(body?.error || "Failed to start execution");
-        }
-
-        const executionId = body.executionId;
-        setActiveExecutionId(executionId);
-
-        const wsBase = BACKEND_URL.replace(/^http/i, "ws");
-        const ws = new WebSocket(`${wsBase}/v1/executions/${executionId}/stream`);
-        wsRef.current = ws;
-
-        ws.onmessage = (evt) => {
-          let msg;
-          try {
-            msg = JSON.parse(evt.data);
-          } catch {
-            return;
+      fetch(`${BACKEND_URL}/v1/executions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          language,
+          code: codeToRun,
+        }),
+      })
+        .then(async (response) => {
+          const body = await response.json();
+          if (!response.ok) {
+            throw new Error(body?.error || "Failed to start execution");
           }
 
-          if (msg.type === "stdout" || msg.type === "stderr") {
-            const output = (msg.chunk || "").replace(/\r/g, "");
-            const chunks = output.split("\n").filter((line) => line.length > 0);
-            if (chunks.length === 0) {
+          const executionId = body.executionId;
+
+          updateTerminal(
+            terminalId,
+            (current) => ({
+              ...current,
+              activeExecutionId: executionId,
+            }),
+            true,
+          );
+
+          const wsBase = BACKEND_URL.replace(/^http/i, "ws");
+          const ws = new WebSocket(`${wsBase}/v1/executions/${executionId}/stream`);
+          socketsRef.current.set(terminalId, ws);
+
+          ws.onmessage = (evt) => {
+            let msg;
+            try {
+              msg = JSON.parse(evt.data);
+            } catch {
               return;
             }
 
-            const visible = chunks.slice(0, MAX_LINES_PER_EVENT);
-            addLines(
-              visible.map((line) => ({
-                text: line,
-                type: msg.type === "stderr" ? "error" : "log",
-              })),
-            );
+            if (msg.type === "stdout" || msg.type === "stderr") {
+              const output = (msg.chunk || "").replace(/\r/g, "");
+              const chunks = output.split("\n").filter((line) => line.length > 0);
+              if (chunks.length === 0) {
+                return;
+              }
 
-            if (chunks.length > visible.length) {
-              addLines([
+              const visible = chunks.slice(0, MAX_LINES_PER_EVENT);
+              addLines(
+                terminalId,
+                visible.map((line) => ({
+                  text: line,
+                  type: msg.type === "stderr" ? "error" : "log",
+                })),
+              );
+
+              if (chunks.length > visible.length) {
+                addLines(terminalId, [
+                  {
+                    text: `...[${chunks.length - visible.length} lines omitted from one output burst]`,
+                    type: "muted",
+                  },
+                ]);
+              }
+              return;
+            }
+
+            if (msg.type === "scan-report") {
+              addLines(terminalId, [
                 {
-                  text: `...[${chunks.length - visible.length} lines omitted from one output burst]`,
+                  text: `scan: high=${msg.summary?.high || 0}, medium=${msg.summary?.medium || 0}, low=${msg.summary?.low || 0}`,
                   type: "muted",
                 },
               ]);
+              return;
             }
-            return;
-          }
 
-          if (msg.type === "scan-report") {
-            addLines([
-              {
-                text: `scan: high=${msg.summary?.high || 0}, medium=${msg.summary?.medium || 0}, low=${msg.summary?.low || 0}`,
-                type: "muted",
-              },
-            ]);
-            return;
-          }
+            if (msg.type === "system" && msg.message) {
+              const type =
+                msg.stage === "failed"
+                  ? "error"
+                  : msg.stage === "blocked"
+                    ? "warn"
+                    : "system";
+              addLines(terminalId, [{ text: msg.message, type }]);
+            }
 
-          if (msg.type === "system" && msg.message) {
-            const type = msg.stage === "failed" ? "error" : msg.stage === "blocked" ? "warn" : "system";
-            addLines([{ text: msg.message, type }]);
-          }
+            if (msg.type === "run-ended") {
+              addLines(terminalId, [
+                {
+                  text: `Process exited with code ${msg.exitCode ?? 1}`,
+                  type: msg.exitCode === 0 ? "system" : "error",
+                },
+              ]);
 
-          if (msg.type === "run-ended") {
-            addLines([
-              {
-                text: `▸ Process exited with code ${msg.exitCode ?? 1}`,
-                type: msg.exitCode === 0 ? "system" : "error",
-              },
-            ]);
-            setIsRunning(false);
-            setActiveExecutionId(null);
-            cleanupSocket();
-          }
+              updateTerminal(
+                terminalId,
+                (current) => ({
+                  ...current,
+                  isRunning: false,
+                  activeExecutionId: null,
+                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+                }),
+                true,
+              );
+              cleanupSocket(terminalId);
+            }
 
-          if (msg.type === "system" && (msg.stage === "failed" || msg.stage === "blocked")) {
-            setIsRunning(false);
-            setActiveExecutionId(null);
-            cleanupSocket();
-          }
+            if (msg.type === "system" && (msg.stage === "failed" || msg.stage === "blocked")) {
+              updateTerminal(
+                terminalId,
+                (current) => ({
+                  ...current,
+                  isRunning: false,
+                  activeExecutionId: null,
+                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+                }),
+                true,
+              );
+              cleanupSocket(terminalId);
+            }
+          };
+
+          ws.onerror = () => {
+            addLines(terminalId, [{ text: "Execution stream connection failed", type: "error" }]);
+            updateTerminal(
+              terminalId,
+              (current) => ({
+                ...current,
+                isRunning: false,
+                activeExecutionId: null,
+                lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+              }),
+              true,
+            );
+            cleanupSocket(terminalId);
+          };
+
+          ws.onclose = () => {
+            updateTerminal(
+              terminalId,
+              (current) => ({
+                ...current,
+                isRunning: false,
+                activeExecutionId: null,
+                lockOwnerId: current.isRunning ? null : current.lockOwnerId,
+                lockOwnerName: current.isRunning ? null : current.lockOwnerName,
+              }),
+              true,
+            );
+          };
+        })
+        .catch((error) => {
+          addLines(terminalId, [{ text: `Failed to run: ${error.message}`, type: "error" }]);
+          updateTerminal(
+            terminalId,
+            (current) => ({
+              ...current,
+              isRunning: false,
+              activeExecutionId: null,
+              lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+              lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
+            }),
+            true,
+          );
+          cleanupSocket(terminalId);
+        });
+    },
+    [
+      acquireLock,
+      addLines,
+      cleanupSocket,
+      code,
+      displayName,
+      isRunnable,
+      language,
+      updateTerminal,
+      user?.id,
+    ],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      runSnippetInNewTerminal: (snippet, meta = {}) => {
+        const snippetText = typeof snippet === "string" ? snippet : "";
+        if (!snippetText.trim()) {
+          return false;
+        }
+
+        const sourceLabel = meta?.sourceLabel || "selection";
+        const snippetLines = snippetText.split("\n").length;
+        const now = Date.now();
+        const lockToken = user?.id
+          ? `${user.id}-${now}-${Math.floor(Math.random() * 100000)}`
+          : null;
+        const nextTerminal = {
+          ...createTerminal(terminals.length + 1, displayName),
+          createdById: user?.id || null,
+          retainLockAfterRun: true,
+          lockOwnerId: user?.id || null,
+          lockOwnerName: displayName,
+          lockToken,
+          lastHeartbeatAt: now,
+          lastActivityAt: now,
         };
 
-        ws.onerror = () => {
-          addLines([{ text: "Execution stream connection failed", type: "error" }]);
-          setIsRunning(false);
-          setActiveExecutionId(null);
-          cleanupSocket();
-        };
+        const nextTerminals = [...terminals, nextTerminal];
+        applyAndMaybeBroadcast(nextTerminals, nextTerminal.id, true);
 
-        ws.onclose = () => {
-          if (isRunning) {
-            setIsRunning(false);
-            setActiveExecutionId(null);
-          }
-        };
-      })
-      .catch((error) => {
-        addLines([{ text: `Failed to run: ${error.message}`, type: "error" }]);
-        setIsRunning(false);
-        setActiveExecutionId(null);
-      });
-  }, [
-    addLines,
-    cleanupSocket,
-    code,
-    isRunnable,
-    isRunning,
-    language,
-    normalizeLanguage,
-  ]);
+        setTimeout(() => {
+          addLines(nextTerminal.id, [
+            {
+              text: `Running snippet from ${sourceLabel} (${snippetLines} line${snippetLines === 1 ? "" : "s"})`,
+              type: "muted",
+            },
+          ]);
+          executeCode(nextTerminal.id, snippetText, "snippet");
+        }, 0);
+
+        return true;
+      },
+    }),
+    [addLines, applyAndMaybeBroadcast, displayName, executeCode, terminals, user?.id],
+  );
 
   const handleCommand = useCallback(
-    (rawInput) => {
+    (terminalId, rawInput) => {
       const trimmed = rawInput.trim();
       if (!trimmed) return;
 
-      // Show the command in output
-      addLines([{ text: `$ ${trimmed}`, type: "input" }]);
+      const lockOutcome = acquireLock(terminalId);
+      if (lockOutcome !== "acquired") {
+        addLines(terminalId, [
+          {
+            text:
+              lockOutcome === "requested"
+                ? "Lock requested. Try again once granted."
+                : "Terminal is locked by another collaborator",
+            type: "warn",
+          },
+        ]);
+        return;
+      }
 
-      // Add to history
-      setCommandHistory((prev) => [...prev, trimmed]);
+      addLines(terminalId, [{ text: `$ ${trimmed}`, type: "input" }]);
+
+      updateTerminal(
+        terminalId,
+        (terminal) => ({
+          ...terminal,
+          commandHistory: [...terminal.commandHistory, trimmed],
+        }),
+        true,
+      );
+
       setHistoryIndex(-1);
 
       const parts = trimmed.split(/\s+/);
       const cmd = parts[0].toLowerCase();
       const args = parts.slice(1);
 
-      // Built-in commands
       if (cmd === "clear") {
-        setLines([]);
+        updateTerminal(
+          terminalId,
+          (terminal) => ({
+            ...terminal,
+            lines: [],
+          }),
+          true,
+        );
         return;
       }
 
       if (cmd === "run") {
-        executeCode();
+        executeCode(terminalId);
         return;
       }
 
       if (cmd === "stop") {
-        stopExecution();
+        stopExecution(terminalId);
+        return;
+      }
+
+      if (cmd === "lock") {
+        addLines(terminalId, [{ text: "Lock is active", type: "system" }]);
+        return;
+      }
+
+      if (cmd === "unlock") {
+        releaseLock(terminalId, true);
+        addLines(terminalId, [{ text: "Lock released", type: "system" }]);
         return;
       }
 
       if (cmd === "echo") {
-        addLines([{ text: args.join(" "), type: "log" }]);
+        addLines(terminalId, [{ text: args.join(" "), type: "log" }]);
         return;
       }
 
       if (BUILTIN_COMMANDS[cmd]) {
-        addLines(BUILTIN_COMMANDS[cmd](args));
+        addLines(terminalId, BUILTIN_COMMANDS[cmd](args));
         return;
       }
 
-      // Unknown command — placeholder until Docker backend
-      addLines([
+      addLines(terminalId, [
         {
-          text: `${cmd}: command not supported in single-user terminal yet`,
+          text: `${cmd}: command not supported yet`,
           type: "warn",
         },
         {
-          text: "  Supported commands: help, clear, echo, run, stop",
+          text: "Supported commands: help, clear, echo, run, stop, lock, unlock",
           type: "muted",
         },
       ]);
     },
-    [addLines, executeCode, stopExecution],
+    [acquireLock, addLines, executeCode, releaseLock, stopExecution, updateTerminal],
   );
 
   const handleKeyDown = useCallback(
     (e) => {
+      if (!activeTerminal) return;
+
       if (e.key === "Enter") {
         e.preventDefault();
-        if (isRunning) {
-          sendRuntimeInput(inputValue);
+
+        if (activeTerminal.isRunning) {
+          sendRuntimeInput(activeTerminal.id, inputValue);
         } else {
-          handleCommand(inputValue);
+          handleCommand(activeTerminal.id, inputValue);
         }
+
         setInputValue("");
-      } else if (e.key === "ArrowUp") {
-        if (isRunning) return;
+        return;
+      }
+
+      if (e.key === "ArrowUp") {
+        if (activeTerminal.isRunning) return;
         e.preventDefault();
-        if (commandHistory.length === 0) return;
+
+        const history = activeTerminal.commandHistory || [];
+        if (history.length === 0) return;
+
         const newIndex =
-          historyIndex === -1
-            ? commandHistory.length - 1
-            : Math.max(0, historyIndex - 1);
+          historyIndex === -1 ? history.length - 1 : Math.max(0, historyIndex - 1);
+
         setHistoryIndex(newIndex);
-        setInputValue(commandHistory[newIndex]);
-      } else if (e.key === "ArrowDown") {
-        if (isRunning) return;
+        setInputValue(history[newIndex]);
+        return;
+      }
+
+      if (e.key === "ArrowDown") {
+        if (activeTerminal.isRunning) return;
         e.preventDefault();
+
+        const history = activeTerminal.commandHistory || [];
         if (historyIndex === -1) return;
+
         const newIndex = historyIndex + 1;
-        if (newIndex >= commandHistory.length) {
+        if (newIndex >= history.length) {
           setHistoryIndex(-1);
           setInputValue("");
         } else {
           setHistoryIndex(newIndex);
-          setInputValue(commandHistory[newIndex]);
+          setInputValue(history[newIndex]);
         }
-      } else if (e.key === "l" && e.ctrlKey) {
+        return;
+      }
+
+      if (e.key === "l" && e.ctrlKey) {
         e.preventDefault();
-        setLines([]);
-      } else if (e.key === "c" && e.ctrlKey) {
+        if (canControlActiveTerminal) {
+          updateTerminal(
+            activeTerminal.id,
+            (terminal) => ({
+              ...terminal,
+              lines: [],
+            }),
+            true,
+          );
+        }
+        return;
+      }
+
+      if (e.key === "c" && e.ctrlKey) {
         e.preventDefault();
-        if (isRunning) {
-          addLines([{ text: "^C", type: "error" }]);
-          stopExecution();
+        if (activeTerminal.isRunning) {
+          addLines(activeTerminal.id, [{ text: "^C", type: "error" }]);
+          stopExecution(activeTerminal.id);
         } else {
           setInputValue("");
         }
       }
     },
     [
-      inputValue,
-      commandHistory,
-      historyIndex,
-      handleCommand,
-      isRunning,
+      activeTerminal,
       addLines,
-      stopExecution,
+      canControlActiveTerminal,
+      handleCommand,
+      historyIndex,
+      inputValue,
       sendRuntimeInput,
+      stopExecution,
+      updateTerminal,
     ],
   );
 
-  // Resize
   const handleResizeStart = useCallback(
     (e) => {
       e.preventDefault();
@@ -438,9 +924,9 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       startYRef.current = e.clientY;
       startHeightRef.current = panelHeight;
 
-      const handleMouseMove = (e) => {
+      const handleMouseMove = (event) => {
         if (!isDraggingRef.current) return;
-        const delta = startYRef.current - e.clientY;
+        const delta = startYRef.current - event.clientY;
         setPanelHeight(
           Math.max(140, Math.min(600, startHeightRef.current + delta)),
         );
@@ -458,18 +944,346 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
     [panelHeight],
   );
 
-  const handleClear = useCallback(() => setLines([]), []);
+  const createNewTerminal = useCallback(() => {
+    const next = [
+      ...terminals,
+      {
+        ...createTerminal(terminals.length + 1, displayName),
+        createdById: user?.id || null,
+      },
+    ];
+    const nextActiveId = next[next.length - 1].id;
+    applyAndMaybeBroadcast(next, nextActiveId, true);
+    setInputValue("");
+    setHistoryIndex(-1);
+  }, [applyAndMaybeBroadcast, displayName, terminals, user?.id]);
+
+  const closeTerminal = useCallback(
+    (terminalId) => {
+      const terminal = terminals.find((t) => t.id === terminalId);
+      if (!terminal) return;
+
+      if (terminal.isRunning) {
+        stopExecution(terminalId);
+      }
+
+      cleanupSocket(terminalId);
+
+      const filtered = terminals.filter((t) => t.id !== terminalId);
+      if (filtered.length === 0) {
+        const single = [
+          {
+            ...createTerminal(1, displayName),
+            createdById: user?.id || null,
+          },
+        ];
+        applyAndMaybeBroadcast(single, single[0].id, true);
+        return;
+      }
+
+      const nextActiveId =
+        activeTerminalId === terminalId ? filtered[filtered.length - 1].id : activeTerminalId;
+
+      applyAndMaybeBroadcast(filtered, nextActiveId, true);
+      setInputValue("");
+      setHistoryIndex(-1);
+    },
+    [
+      activeTerminalId,
+      applyAndMaybeBroadcast,
+      cleanupSocket,
+      displayName,
+      stopExecution,
+      terminals,
+      user?.id,
+    ],
+  );
+
+  const handleClear = useCallback(() => {
+    if (!activeTerminal || !canControlActiveTerminal) return;
+
+    updateTerminal(
+      activeTerminal.id,
+      (terminal) => ({
+        ...terminal,
+        lines: [],
+      }),
+      true,
+    );
+  }, [activeTerminal, canControlActiveTerminal, updateTerminal]);
+
+  const handleOutputClick = useCallback(() => {
+    if (activeTerminal) {
+      acquireLock(activeTerminal.id);
+    }
+    inputRef.current?.focus();
+  }, [acquireLock, activeTerminal]);
+
+  useEffect(() => {
+    if (outputEndRef.current) {
+      outputEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [activeTerminal?.lines]);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen, activeTerminalId]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    if (terminals.length === 0) {
+      const base = [
+        {
+          ...createTerminal(1, displayName),
+          createdById: user.id,
+        },
+      ];
+      applyAndMaybeBroadcast(base, base[0].id, true);
+    }
+  }, [applyAndMaybeBroadcast, displayName, terminals.length, user?.id]);
+
+  useEffect(() => {
+    setOnTerminalSnapshot((snapshot) => {
+      if (!snapshot || !Array.isArray(snapshot.terminals)) return;
+
+      suppressNextBroadcastRef.current = true;
+      setTerminals(snapshot.terminals.map(normalizeTerminal));
+      setActiveTerminalId(
+        snapshot.activeTerminalId || snapshot.terminals[0]?.id || null,
+      );
+    });
+
+    return () => {
+      setOnTerminalSnapshot(null);
+    };
+  }, [setOnTerminalSnapshot]);
+
+  useEffect(() => {
+    setOnTerminalLockRequest((payload) => {
+      if (!isAuthoritativeHost || !payload?.terminalId || !payload?.userId) {
+        return;
+      }
+
+      const target = terminals.find((t) => t.id === payload.terminalId);
+      if (!target) return;
+
+      const stale = isLockStale(target);
+      const canGrant =
+        !target.lockOwnerId ||
+        stale ||
+        target.lockOwnerId === payload.userId;
+
+      if (!canGrant) {
+        broadcastTerminalLockGrant({
+          userId: user?.id,
+          toUserId: payload.userId,
+          toUserName: payload.userName,
+          terminalId: payload.terminalId,
+          approved: false,
+          deniedBy: target.lockOwnerName || target.lockOwnerId,
+          requestedAt: payload.requestedAt,
+        });
+        return;
+      }
+
+      const lockToken = payload.requestToken || `${payload.userId}-${Date.now()}`;
+
+      updateTerminal(
+        payload.terminalId,
+        (terminal) => ({
+          ...terminal,
+          lockOwnerId: payload.userId,
+          lockOwnerName: payload.userName || terminal.lockOwnerName || "Collaborator",
+          lockToken,
+          lastHeartbeatAt: Date.now(),
+          lastActivityAt: Date.now(),
+        }),
+        true,
+      );
+
+      broadcastTerminalLockGrant({
+        userId: user?.id,
+        toUserId: payload.userId,
+        toUserName: payload.userName,
+        terminalId: payload.terminalId,
+        approved: true,
+        lockToken,
+        grantedAt: Date.now(),
+      });
+    });
+
+    return () => {
+      setOnTerminalLockRequest(null);
+    };
+  }, [
+    broadcastTerminalLockGrant,
+    isAuthoritativeHost,
+    isLockStale,
+    setOnTerminalLockRequest,
+    terminals,
+    updateTerminal,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    setOnTerminalLockGrant((payload) => {
+      if (!payload || payload.toUserId !== user?.id) {
+        return;
+      }
+
+      if (!payload.approved) {
+        addLines(payload.terminalId, [
+          {
+            text: `Lock denied${payload.deniedBy ? `: held by ${payload.deniedBy}` : ""}`,
+            type: "warn",
+          },
+        ]);
+        return;
+      }
+
+      updateTerminal(
+        payload.terminalId,
+        (terminal) => ({
+          ...terminal,
+          lockOwnerId: user.id,
+          lockOwnerName: displayName,
+          lockToken: payload.lockToken || terminal.lockToken,
+          lastHeartbeatAt: Date.now(),
+          lastActivityAt: Date.now(),
+        }),
+        true,
+      );
+    });
+
+    return () => {
+      setOnTerminalLockGrant(null);
+    };
+  }, [addLines, displayName, setOnTerminalLockGrant, updateTerminal, user?.id]);
 
   useEffect(() => {
     return () => {
-      cleanupSocket();
+      Array.from(socketsRef.current.keys()).forEach((terminalId) => {
+        cleanupSocket(terminalId);
+      });
     };
   }, [cleanupSocket]);
 
-  // Click anywhere in output area → focus input
-  const handleOutputClick = useCallback(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => {
+    if (!isAuthoritativeHost) return;
+
+    const timer = setInterval(() => {
+      setTerminals((prev) => {
+        let changed = false;
+        const now = Date.now();
+
+        const next = prev.map((terminal) => {
+          if (!terminal.lockOwnerId || !terminal.lastHeartbeatAt) {
+            return terminal;
+          }
+
+          if (now - terminal.lastHeartbeatAt <= LOCK_STALE_MS) {
+            return terminal;
+          }
+
+          changed = true;
+          return {
+            ...terminal,
+            lockOwnerId: null,
+            lockOwnerName: null,
+            lockToken: null,
+            lastHeartbeatAt: null,
+            lastActivityAt: now,
+            lines: [
+              ...terminal.lines,
+              {
+                id: `${now}-${Math.random()}`,
+                text: "Lock auto-released (inactive owner timeout)",
+                type: "muted",
+                time: formatTimestamp(),
+              },
+            ].slice(-MAX_TERMINAL_LINES),
+          };
+        });
+
+        if (!changed) {
+          return prev;
+        }
+
+        if (user?.id) {
+          broadcastTerminalSnapshot(user.id, {
+            terminals: next,
+            activeTerminalId,
+            updatedAt: Date.now(),
+          });
+        }
+
+        return next;
+      });
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [activeTerminalId, broadcastTerminalSnapshot, isAuthoritativeHost, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const timer = setInterval(() => {
+      setTerminals((prev) => {
+        const now = Date.now();
+        let changed = false;
+
+        const next = prev.map((terminal) => {
+          if (terminal.lockOwnerId !== user.id) {
+            return terminal;
+          }
+
+          changed = true;
+          return {
+            ...terminal,
+            lastHeartbeatAt: now,
+          };
+        });
+
+        if (!changed) {
+          return prev;
+        }
+
+        broadcastTerminalSnapshot(user.id, {
+          terminals: next,
+          activeTerminalId,
+          updatedAt: Date.now(),
+        });
+
+        return next;
+      });
+    }, LOCK_HEARTBEAT_MS);
+
+    return () => clearInterval(timer);
+  }, [activeTerminalId, broadcastTerminalSnapshot, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || terminals.length === 0) return;
+
+    if (suppressNextBroadcastRef.current) {
+      suppressNextBroadcastRef.current = false;
+      return;
+    }
+
+    broadcastTerminalSnapshot(user.id, {
+      terminals,
+      activeTerminalId,
+      updatedAt: Date.now(),
+    });
+  }, [
+    activeTerminalId,
+    broadcastTerminalSnapshot,
+    collaborators.length,
+    terminals,
+    user?.id,
+  ]);
 
   const getLineColor = (type) => {
     switch (type) {
@@ -499,37 +1313,90 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
           className="flex flex-col border-t border-neutral-800 bg-neutral-950 flex-shrink-0 overflow-hidden"
           style={{ minHeight: 0 }}
         >
-          {/* Resize handle */}
           <div
             className="h-1 bg-neutral-950 hover:bg-accent-500/30 cursor-row-resize transition-colors flex-shrink-0"
             onMouseDown={handleResizeStart}
           />
 
-          {/* Header bar */}
           <div className="h-9 flex items-center justify-between px-3 bg-[#121215] border-b border-neutral-800 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-1.5 text-xs flex-shrink-0">
                 <TerminalIcon className="w-3.5 h-3.5 text-neutral-400" />
                 <span className="font-semibold text-neutral-300 font-display">
                   Terminal
                 </span>
               </div>
 
-              {isRunning && (
-                <div className="flex items-center gap-1.5 text-xs text-accent-400">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Running</span>
-                </div>
-              )}
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+                {terminals.map((terminal) => {
+                  const isActive = terminal.id === activeTerminalId;
+                  const lockedByOther =
+                    !!terminal.lockOwnerId && terminal.lockOwnerId !== user?.id;
+                  const isSnippetTerminal = !!terminal.retainLockAfterRun;
+
+                  return (
+                    <button
+                      key={terminal.id}
+                      onClick={() => {
+                        setActiveTerminalId(terminal.id);
+                        if (user?.id) {
+                          broadcastTerminalSnapshot(user.id, {
+                            terminals,
+                            activeTerminalId: terminal.id,
+                            updatedAt: Date.now(),
+                          });
+                        }
+                      }}
+                      className={`px-2 py-1 rounded text-xs border transition-colors whitespace-nowrap ${
+                        isActive
+                          ? "bg-neutral-800 border-neutral-600 text-neutral-100"
+                          : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200"
+                      }`}
+                      title={terminal.name}
+                    >
+                      <span>{terminal.name}</span>
+                      {isSnippetTerminal && (
+                        <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-primary-500/20 text-primary-400 border border-primary-500/30 align-middle">
+                          Snippet
+                        </span>
+                      )}
+                      {terminal.isRunning && (
+                        <Loader2 className="w-3 h-3 inline ml-1 animate-spin text-accent-400" />
+                      )}
+                      {lockedByOther && <Lock className="w-3 h-3 inline ml-1 text-amber-400" />}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={createNewTerminal}
+                  className="p-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+                  title="Create terminal"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1">
-              {/* Run code */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {activeTerminal?.retainLockAfterRun && (
+                <div className="hidden md:flex items-center gap-1.5 text-xs text-primary-400 px-2 py-1 rounded bg-primary-500/10 border border-primary-500/20 mr-1">
+                  <span>Snippet Run</span>
+                </div>
+              )}
+
+              {activeTerminal?.lockOwnerId && (
+                <div className="hidden md:flex items-center gap-1.5 text-xs text-amber-400 px-2 py-1 rounded bg-amber-500/10 mr-1">
+                  <Lock className="w-3 h-3" />
+                  <span>{activeTerminal.lockOwnerId === user?.id ? "You" : activeTerminal.lockOwnerName} locked</span>
+                </div>
+              )}
+
               {isRunnable && (
                 <>
                   <button
-                    onClick={executeCode}
-                    disabled={isRunning}
+                    onClick={() => activeTerminal && executeCode(activeTerminal.id)}
+                    disabled={!activeTerminal || activeTerminal.isRunning || !canControlActiveTerminal}
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-accent-500/10 text-accent-400 hover:bg-accent-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title={`Run ${language} code`}
                   >
@@ -537,8 +1404,8 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
                     Run
                   </button>
                   <button
-                    onClick={stopExecution}
-                    disabled={!isRunning}
+                    onClick={() => activeTerminal && stopExecution(activeTerminal.id)}
+                    disabled={!activeTerminal || !activeTerminal.isRunning || !canControlActiveTerminal}
                     className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     title="Stop execution"
                   >
@@ -548,16 +1415,32 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
                 </>
               )}
 
-              {/* Clear */}
+              <button
+                onClick={() => activeTerminal && releaseLock(activeTerminal.id, true)}
+                disabled={!activeTerminal || activeTerminal.lockOwnerId !== user?.id}
+                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Release lock"
+              >
+                <Unlock className="w-3 h-3" />
+              </button>
+
               <button
                 onClick={handleClear}
-                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+                disabled={!canControlActiveTerminal}
+                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title="Clear (Ctrl+L)"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
 
-              {/* Close */}
+              <button
+                onClick={() => activeTerminal && closeTerminal(activeTerminal.id)}
+                className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+                title="Close active terminal"
+              >
+                <Square className="w-3 h-3" />
+              </button>
+
               <button
                 onClick={onToggle}
                 className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
@@ -568,13 +1451,30 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
             </div>
           </div>
 
-          {/* Terminal body */}
           <div
             className="flex-1 overflow-y-auto px-4 py-2 font-mono text-[13px] leading-6 select-text cursor-text"
             onClick={handleOutputClick}
           >
-            {/* Output lines */}
-            {lines.map((line) => (
+            {activeTerminal && (
+              <div className="mb-2 px-2 py-1 rounded border border-neutral-800 bg-neutral-900/50 text-[11px] text-neutral-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>by {activeTerminal.createdByName || "Unknown"}</span>
+                <span className="text-neutral-700">•</span>
+                <span className="flex items-center gap-1">
+                  <Clock3 className="w-3 h-3" />
+                  active {formatRelativeTime(activeTerminal.lastActivityAt)}
+                </span>
+                {activeTerminal.lockOwnerId && (
+                  <>
+                    <span className="text-neutral-700">•</span>
+                    <span>
+                      lock {activeTerminal.lockOwnerId === user?.id ? "you" : activeTerminal.lockOwnerName || "collaborator"}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {(activeTerminal?.lines || []).map((line) => (
               <div key={line.id} className="flex gap-2 min-h-[1.5rem]">
                 {line.time && (
                   <span className="text-neutral-700 select-none flex-shrink-0 text-[11px] mt-[2px]">
@@ -582,15 +1482,12 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
                   </span>
                 )}
                 {!line.time && <span className="w-[52px] flex-shrink-0" />}
-                <span
-                  className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}
-                >
+                <span className={`${getLineColor(line.type)} whitespace-pre-wrap break-all`}>
                   {line.text}
                 </span>
               </div>
             ))}
 
-            {/* Input line */}
             <div className="flex gap-2 items-center min-h-[1.5rem]">
               <span className="w-[52px] flex-shrink-0" />
               <span className="text-accent-400 select-none">$</span>
@@ -600,8 +1497,22 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={() => {
+                  if (activeTerminal) acquireLock(activeTerminal.id);
+                }}
+                onBlur={() => {
+                  if (activeTerminal && !activeTerminal.isRunning) {
+                    releaseLock(activeTerminal.id, false);
+                  }
+                }}
                 className="flex-1 bg-transparent border-none outline-none text-neutral-100 caret-accent-400 text-[13px] font-mono placeholder-neutral-600"
-                placeholder={isRunning ? "type stdin and press Enter..." : "type a command..."}
+                placeholder={
+                  isLockedByOther
+                    ? `locked by ${activeTerminal?.lockOwnerName || "another collaborator"}`
+                    : activeTerminal?.isRunning
+                      ? "type stdin and press Enter..."
+                      : "type a command..."
+                }
                 disabled={false}
                 spellCheck={false}
                 autoComplete="off"
@@ -615,4 +1526,6 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       )}
     </AnimatePresence>
   );
-}
+});
+
+export default TerminalPanel;

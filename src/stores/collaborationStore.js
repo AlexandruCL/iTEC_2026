@@ -10,6 +10,9 @@ export const useCollaborationStore = create((set, get) => ({
   userColor: generateColor(),
   onCodeChanges: null,
   onFullSync: null,
+  onTerminalSnapshot: null,
+  onTerminalLockRequest: null,
+  onTerminalLockGrant: null,
 
   setCollaborators: (collaborators) => set({ collaborators }),
   setCursors: (cursors) => set({ cursors }),
@@ -114,6 +117,27 @@ export const useCollaborationStore = create((set, get) => ({
         const cb = get().onFileSystemChange;
         if (cb) {
           cb(payload.fs, payload.userId);
+        }
+      })
+      .on("broadcast", { event: "terminal-state" }, ({ payload }) => {
+        if (payload.userId === user.id) return;
+        const cb = get().onTerminalSnapshot;
+        if (cb && payload.snapshot) {
+          cb(payload.snapshot, payload.userId);
+        }
+      })
+      .on("broadcast", { event: "terminal-lock-request" }, ({ payload }) => {
+        if (payload.userId === user.id) return;
+        const cb = get().onTerminalLockRequest;
+        if (cb && payload) {
+          cb(payload);
+        }
+      })
+      .on("broadcast", { event: "terminal-lock-grant" }, ({ payload }) => {
+        if (payload.userId === user.id) return;
+        const cb = get().onTerminalLockGrant;
+        if (cb && payload) {
+          cb(payload);
         }
       });
 
@@ -227,6 +251,42 @@ export const useCollaborationStore = create((set, get) => ({
 
   setOnCodeChanges: (callback) => set({ onCodeChanges: callback }),
   setOnFullSync: (callback) => set({ onFullSync: callback }),
+  setOnTerminalSnapshot: (callback) => set({ onTerminalSnapshot: callback }),
+  setOnTerminalLockRequest: (callback) => set({ onTerminalLockRequest: callback }),
+  setOnTerminalLockGrant: (callback) => set({ onTerminalLockGrant: callback }),
+
+  broadcastTerminalSnapshot: (userId, snapshot) => {
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "terminal-state",
+        payload: { userId, snapshot },
+      });
+    }
+  },
+
+  broadcastTerminalLockRequest: (payload) => {
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "terminal-lock-request",
+        payload,
+      });
+    }
+  },
+
+  broadcastTerminalLockGrant: (payload) => {
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "terminal-lock-grant",
+        payload,
+      });
+    }
+  },
 
   onFileSystemChange: null,
   setOnFileSystemChange: (callback) => set({ onFileSystemChange: callback }),
