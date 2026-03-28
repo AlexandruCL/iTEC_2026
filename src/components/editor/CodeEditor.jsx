@@ -801,18 +801,34 @@ const CodeEditor = forwardRef(function CodeEditor({
       );
 
       fsPaths.forEach((path) => {
+        const nextContent =
+          typeof fileSystem[path]?.content === "string"
+            ? fileSystem[path].content
+            : "";
+
         if (!currentModels[path]) {
           const uri = monacoInst.Uri.file(path);
           let model = monacoInst.editor.getModel(uri);
           if (!model) {
             // Monaco will auto-detect language based on extension in URI
             model = monacoInst.editor.createModel(
-              fileSystem[path].content || "",
+              nextContent,
               undefined,
               uri,
             );
           }
           currentModels[path] = model;
+          return;
+        }
+
+        const existingModel = currentModels[path];
+        if (existingModel.getValue() !== nextContent) {
+          // Apply external state (replay/full sync) without re-broadcasting edits.
+          isRemoteRef.current = true;
+          existingModel.setValue(nextContent);
+          requestAnimationFrame(() => {
+            isRemoteRef.current = false;
+          });
         }
       });
 
