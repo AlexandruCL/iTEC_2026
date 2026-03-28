@@ -12,6 +12,8 @@ const CodeEditor = forwardRef(function CodeEditor({
   navigationTarget,
   onCursorChange,
   onContentChange,
+  onSnippetSelectionChange,
+  onRunSelectionInNewTerminal,
 }, ref) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -26,11 +28,29 @@ const CodeEditor = forwardRef(function CodeEditor({
   const currentLineRef = useRef(null);
   const hasAppendedNewline = useRef(false);
   const lastValidPositionRef = useRef(null);
-  const propsRef = useRef({ activeFile, onContentChange, onCursorChange });
+  const propsRef = useRef({
+    activeFile,
+    onContentChange,
+    onCursorChange,
+    onSnippetSelectionChange,
+    onRunSelectionInNewTerminal,
+  });
 
   useEffect(() => {
-    propsRef.current = { activeFile, onContentChange, onCursorChange };
-  }, [activeFile, onContentChange, onCursorChange]);
+    propsRef.current = {
+      activeFile,
+      onContentChange,
+      onCursorChange,
+      onSnippetSelectionChange,
+      onRunSelectionInNewTerminal,
+    };
+  }, [
+    activeFile,
+    onContentChange,
+    onCursorChange,
+    onSnippetSelectionChange,
+    onRunSelectionInNewTerminal,
+  ]);
 
   const { user } = useAuthStore();
   const { cursors, lockedLines } = useCollaborationStore();
@@ -515,6 +535,67 @@ const CodeEditor = forwardRef(function CodeEditor({
           column: Math.max(position.column - 1, 0),
         });
       }
+    });
+
+    const emitSnippetSelection = () => {
+      const model = editor.getModel();
+      const selection = editor.getSelection();
+      if (!model || !selection || selection.isEmpty()) {
+        propsRef.current.onSnippetSelectionChange?.(null);
+        return;
+      }
+
+      const selectedText = model.getValueInRange(selection);
+      if (!selectedText || !selectedText.trim()) {
+        propsRef.current.onSnippetSelectionChange?.(null);
+        return;
+      }
+
+      propsRef.current.onSnippetSelectionChange?.({
+        text: selectedText,
+        path: propsRef.current.activeFile,
+        range: {
+          startLineNumber: selection.startLineNumber,
+          startColumn: selection.startColumn,
+          endLineNumber: selection.endLineNumber,
+          endColumn: selection.endColumn,
+        },
+      });
+    };
+
+    editor.onDidChangeCursorSelection(() => {
+      emitSnippetSelection();
+    });
+
+    editor.addAction({
+      id: "run-selection-in-new-terminal",
+      label: "Run In New Terminal",
+      contextMenuGroupId: "2_execution",
+      contextMenuOrder: 1,
+      precondition: "editorHasSelection",
+      run: () => {
+        const model = editor.getModel();
+        const selection = editor.getSelection();
+        if (!model || !selection || selection.isEmpty()) {
+          return;
+        }
+
+        const selectedText = model.getValueInRange(selection);
+        if (!selectedText || !selectedText.trim()) {
+          return;
+        }
+
+        propsRef.current.onRunSelectionInNewTerminal?.({
+          text: selectedText,
+          path: propsRef.current.activeFile,
+          range: {
+            startLineNumber: selection.startLineNumber,
+            startColumn: selection.startColumn,
+            endLineNumber: selection.endLineNumber,
+            endColumn: selection.endColumn,
+          },
+        });
+      },
     });
 
     editor.onDidBlurEditorWidget(() => {

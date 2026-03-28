@@ -82,6 +82,7 @@ export default function Session() {
   const [navigationTarget, setNavigationTarget] = useState(null);
 
   const editorRef = useRef(null);
+  const terminalRef = useRef(null);
   const saveTimerRef = useRef(null);
 
   // AI Agent: insert accepted code at the user's cursor position
@@ -92,6 +93,35 @@ export default function Session() {
     } else {
       toast.error("No active editor — open a file first");
     }
+  };
+
+  const handleRunSelectionInNewTerminal = (selection) => {
+    const snippet = selection?.text;
+    if (!snippet || !snippet.trim()) {
+      toast.error("Select a code snippet first");
+      return;
+    }
+
+    setIsTerminalOpen(true);
+
+    requestAnimationFrame(() => {
+      const ok = terminalRef.current?.runSnippetInNewTerminal?.(snippet, {
+        sourceLabel: selection?.path || activeFile || "selection",
+      });
+
+      if (!ok) {
+        toast.error("Could not open a new terminal for this snippet");
+        return;
+      }
+
+      const start = selection?.range?.startLineNumber;
+      const end = selection?.range?.endLineNumber;
+      const linesLabel =
+        typeof start === "number" && typeof end === "number"
+          ? ` (lines ${start}-${end})`
+          : "";
+      toast.success(`Snippet opened in a new terminal${linesLabel}`);
+    });
   };
 
   // Reset local state when navigating between different sessions
@@ -642,6 +672,7 @@ export default function Session() {
                 activeFile={activeFile}
                 navigationTarget={navigationTarget}
                 onCursorChange={setCursorPos}
+                onRunSelectionInNewTerminal={handleRunSelectionInNewTerminal}
                 onContentChange={(changes, newContent) => {
                   const newFs = {
                     ...fileSystem,
@@ -671,6 +702,7 @@ export default function Session() {
 
           {/* Terminal Panel */}
           <TerminalPanel
+            ref={terminalRef}
             language={currentSession.language}
             code={editorCode}
             hostUserId={currentSession.user_id}

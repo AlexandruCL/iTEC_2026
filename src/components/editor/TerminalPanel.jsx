@@ -1,4 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -74,6 +82,7 @@ function createTerminal(index, ownerName) {
     createdAt: now,
     createdByName: ownerName || "Unknown",
     createdById: null,
+    retainLockAfterRun: false,
     lastActivityAt: now,
     lastHeartbeatAt: null,
     updatedAt: now,
@@ -100,6 +109,7 @@ function normalizeTerminal(terminal) {
     createdAt: terminal.createdAt || now,
     createdByName: terminal.createdByName || terminal.lockOwnerName || "Unknown",
     createdById: terminal.createdById || null,
+    retainLockAfterRun: terminal.retainLockAfterRun || false,
     lastActivityAt: terminal.lastActivityAt || terminal.updatedAt || now,
     lockToken: terminal.lockToken || null,
     lastHeartbeatAt: terminal.lastHeartbeatAt || null,
@@ -115,7 +125,10 @@ function formatRelativeTime(ts) {
   return `${Math.floor(diff / 3_600_000)}h ago`;
 }
 
-export default function TerminalPanel({ language, code, hostUserId, isOpen, onToggle }) {
+const TerminalPanel = forwardRef(function TerminalPanel(
+  { language, code, hostUserId, isOpen, onToggle },
+  ref,
+) {
   const user = useAuthStore((state) => state.user);
   const setOnTerminalSnapshot = useCollaborationStore(
     (state) => state.setOnTerminalSnapshot,
@@ -150,6 +163,11 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
   const startHeightRef = useRef(0);
   const socketsRef = useRef(new Map());
   const suppressNextBroadcastRef = useRef(false);
+  const terminalsRef = useRef([]);
+
+  useEffect(() => {
+    terminalsRef.current = terminals;
+  }, [terminals]);
 
   const displayName =
     user?.user_metadata?.display_name ||
@@ -296,7 +314,7 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
   const acquireLock = useCallback(
     (terminalId) => {
       if (!user?.id) return "denied";
-      const terminal = terminals.find((t) => t.id === terminalId);
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
       if (!terminal) return "denied";
 
       const stale = isLockStale(terminal);
@@ -350,7 +368,6 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
       displayName,
       isAuthoritativeHost,
       isLockStale,
-      terminals,
       updateTerminal,
       user?.id,
     ],
@@ -358,7 +375,7 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
 
   const stopExecution = useCallback(
     async (terminalId) => {
-      const terminal = terminals.find((t) => t.id === terminalId);
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
       if (!terminal) return;
 
       const lockOutcome = acquireLock(terminalId);
@@ -389,12 +406,12 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
         addLines(terminalId, [{ text: `Failed to stop execution: ${error.message}`, type: "error" }]);
       }
     },
-    [acquireLock, addLines, terminals],
+    [acquireLock, addLines],
   );
 
   const sendRuntimeInput = useCallback(
     async (terminalId, input) => {
-      const terminal = terminals.find((t) => t.id === terminalId);
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
       if (!terminal?.activeExecutionId) return;
 
       const lockOutcome = acquireLock(terminalId);
@@ -431,13 +448,15 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
         addLines(terminalId, [{ text: `Failed to send input: ${error.message}`, type: "error" }]);
       }
     },
-    [acquireLock, addLines, terminals],
+    [acquireLock, addLines],
   );
 
   const executeCode = useCallback(
-    (terminalId) => {
-      const terminal = terminals.find((t) => t.id === terminalId);
+    (terminalId, codeOverride = null, runMode = "full") => {
+      const terminal = terminalsRef.current.find((t) => t.id === terminalId);
       if (!terminal) return;
+
+      const codeToRun = typeof codeOverride === "string" ? codeOverride : code;
 
       if (!isRunnable) {
         addLines(terminalId, [
@@ -479,7 +498,15 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
         true,
       );
 
-      addLines(terminalId, [{ text: `Running ${language}...`, type: "system" }]);
+      addLines(terminalId, [
+        {
+          text:
+            runMode === "snippet"
+              ? `Running selected ${language} snippet...`
+              : `Running ${language}...`,
+          type: "system",
+        },
+      ]);
 
       cleanupSocket(terminalId);
 
@@ -488,7 +515,7 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           language,
-          code,
+          code: codeToRun,
         }),
       })
         .then(async (response) => {
@@ -581,8 +608,8 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
                   ...current,
                   isRunning: false,
                   activeExecutionId: null,
-                  lockOwnerId: null,
-                  lockOwnerName: null,
+                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
                 }),
                 true,
               );
@@ -596,8 +623,8 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
                   ...current,
                   isRunning: false,
                   activeExecutionId: null,
-                  lockOwnerId: null,
-                  lockOwnerName: null,
+                  lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                  lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
                 }),
                 true,
               );
@@ -613,8 +640,8 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
                 ...current,
                 isRunning: false,
                 activeExecutionId: null,
-                lockOwnerId: null,
-                lockOwnerName: null,
+                lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+                lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
               }),
               true,
             );
@@ -643,8 +670,8 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
               ...current,
               isRunning: false,
               activeExecutionId: null,
-              lockOwnerId: null,
-              lockOwnerName: null,
+              lockOwnerId: current.retainLockAfterRun ? current.lockOwnerId : null,
+              lockOwnerName: current.retainLockAfterRun ? current.lockOwnerName : null,
             }),
             true,
           );
@@ -659,10 +686,54 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
       displayName,
       isRunnable,
       language,
-      terminals,
       updateTerminal,
       user?.id,
     ],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      runSnippetInNewTerminal: (snippet, meta = {}) => {
+        const snippetText = typeof snippet === "string" ? snippet : "";
+        if (!snippetText.trim()) {
+          return false;
+        }
+
+        const sourceLabel = meta?.sourceLabel || "selection";
+        const snippetLines = snippetText.split("\n").length;
+        const now = Date.now();
+        const lockToken = user?.id
+          ? `${user.id}-${now}-${Math.floor(Math.random() * 100000)}`
+          : null;
+        const nextTerminal = {
+          ...createTerminal(terminals.length + 1, displayName),
+          createdById: user?.id || null,
+          retainLockAfterRun: true,
+          lockOwnerId: user?.id || null,
+          lockOwnerName: displayName,
+          lockToken,
+          lastHeartbeatAt: now,
+          lastActivityAt: now,
+        };
+
+        const nextTerminals = [...terminals, nextTerminal];
+        applyAndMaybeBroadcast(nextTerminals, nextTerminal.id, true);
+
+        setTimeout(() => {
+          addLines(nextTerminal.id, [
+            {
+              text: `Running snippet from ${sourceLabel} (${snippetLines} line${snippetLines === 1 ? "" : "s"})`,
+              type: "muted",
+            },
+          ]);
+          executeCode(nextTerminal.id, snippetText, "snippet");
+        }, 0);
+
+        return true;
+      },
+    }),
+    [addLines, applyAndMaybeBroadcast, displayName, executeCode, terminals, user?.id],
   );
 
   const handleCommand = useCallback(
@@ -1261,6 +1332,7 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
                   const isActive = terminal.id === activeTerminalId;
                   const lockedByOther =
                     !!terminal.lockOwnerId && terminal.lockOwnerId !== user?.id;
+                  const isSnippetTerminal = !!terminal.retainLockAfterRun;
 
                   return (
                     <button
@@ -1283,6 +1355,11 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
                       title={terminal.name}
                     >
                       <span>{terminal.name}</span>
+                      {isSnippetTerminal && (
+                        <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold bg-primary-500/20 text-primary-400 border border-primary-500/30 align-middle">
+                          Snippet
+                        </span>
+                      )}
                       {terminal.isRunning && (
                         <Loader2 className="w-3 h-3 inline ml-1 animate-spin text-accent-400" />
                       )}
@@ -1302,6 +1379,12 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0">
+              {activeTerminal?.retainLockAfterRun && (
+                <div className="hidden md:flex items-center gap-1.5 text-xs text-primary-400 px-2 py-1 rounded bg-primary-500/10 border border-primary-500/20 mr-1">
+                  <span>Snippet Run</span>
+                </div>
+              )}
+
               {activeTerminal?.lockOwnerId && (
                 <div className="hidden md:flex items-center gap-1.5 text-xs text-amber-400 px-2 py-1 rounded bg-amber-500/10 mr-1">
                   <Lock className="w-3 h-3" />
@@ -1443,4 +1526,6 @@ export default function TerminalPanel({ language, code, hostUserId, isOpen, onTo
       )}
     </AnimatePresence>
   );
-}
+});
+
+export default TerminalPanel;
