@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { AnimatePresence } from "motion/react";
 import {
   ArrowRight,
   Users,
@@ -91,19 +92,19 @@ export default function Landing() {
     return <div className="min-h-screen bg-neutral-950" />;
   }
 
-  if (showIntro && !user) {
-    return (
-      <IntroTerminal
-        onComplete={() => {
-          setShowIntro(false);
-          sessionStorage.setItem("itecify_intro_seen", "true");
-        }}
-      />
-    );
-  }
-
   return (
-    <div id="landing-page" className="min-h-screen bg-neutral-950">
+    <>
+      <AnimatePresence>
+        {showIntro && !user && (
+          <IntroTerminal
+            onComplete={() => {
+              setShowIntro(false);
+              sessionStorage.setItem("itecify_intro_seen", "true");
+            }}
+          />
+        )}
+      </AnimatePresence>
+      <div id="landing-page" className="min-h-screen bg-neutral-950">
       <Header />
 
       <main className="pt-16">
@@ -402,5 +403,6 @@ export default function Landing() {
 
       <Footer />
     </div>
+    </>
   );
 }
