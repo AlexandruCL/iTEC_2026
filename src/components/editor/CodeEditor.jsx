@@ -14,6 +14,7 @@ const CodeEditor = forwardRef(function CodeEditor({
   onContentChange,
   onSnippetSelectionChange,
   onRunSelectionInNewTerminal,
+  onInlineAiEditRequest,
 }, ref) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -34,6 +35,7 @@ const CodeEditor = forwardRef(function CodeEditor({
     onCursorChange,
     onSnippetSelectionChange,
     onRunSelectionInNewTerminal,
+    onInlineAiEditRequest,
   });
 
   useEffect(() => {
@@ -43,6 +45,7 @@ const CodeEditor = forwardRef(function CodeEditor({
       onCursorChange,
       onSnippetSelectionChange,
       onRunSelectionInNewTerminal,
+      onInlineAiEditRequest,
     };
   }, [
     activeFile,
@@ -50,6 +53,7 @@ const CodeEditor = forwardRef(function CodeEditor({
     onCursorChange,
     onSnippetSelectionChange,
     onRunSelectionInNewTerminal,
+    onInlineAiEditRequest,
   ]);
 
   const { user } = useAuthStore();
@@ -88,6 +92,65 @@ const CodeEditor = forwardRef(function CodeEditor({
 
       editor.setPosition({ lineNumber: newLine, column: newCol });
       editor.focus();
+    },
+    getSelectedSnippet: () => {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      const selection = editor?.getSelection();
+      if (!editor || !model || !selection || selection.isEmpty()) {
+        return null;
+      }
+
+      const text = model.getValueInRange(selection);
+      if (!text || !text.trim()) {
+        return null;
+      }
+
+      const coords = editor.getScrolledVisiblePosition({
+        lineNumber: selection.startLineNumber,
+        column: selection.startColumn,
+      });
+      const editorRect = editor.getDomNode()?.getBoundingClientRect();
+
+      return {
+        text,
+        path: propsRef.current.activeFile,
+        range: {
+          startLineNumber: selection.startLineNumber,
+          startColumn: selection.startColumn,
+          endLineNumber: selection.endLineNumber,
+          endColumn: selection.endColumn,
+        },
+        anchor: coords && editorRect
+          ? {
+              x: editorRect.left + coords.left,
+              y: editorRect.top + coords.top + coords.height,
+            }
+          : null,
+      };
+    },
+    replaceRangeText: (range, text) => {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (!editor || !monaco || !range) return false;
+
+      editor.executeEdits("inline-ai-replace", [
+        {
+          range: new monaco.Range(
+            range.startLineNumber,
+            range.startColumn,
+            range.endLineNumber,
+            range.endColumn,
+          ),
+          text,
+          forceMoveMarkers: true,
+        },
+      ]);
+      editor.focus();
+      return true;
+    },
+    focusEditor: () => {
+      editorRef.current?.focus();
     },
   }), []);
 
@@ -567,6 +630,42 @@ const CodeEditor = forwardRef(function CodeEditor({
       emitSnippetSelection();
     });
 
+    const getCurrentSelectionPayload = () => {
+      const model = editor.getModel();
+      const selection = editor.getSelection();
+      if (!model || !selection || selection.isEmpty()) {
+        return null;
+      }
+
+      const selectedText = model.getValueInRange(selection);
+      if (!selectedText || !selectedText.trim()) {
+        return null;
+      }
+
+      const coords = editor.getScrolledVisiblePosition({
+        lineNumber: selection.startLineNumber,
+        column: selection.startColumn,
+      });
+      const editorRect = editor.getDomNode()?.getBoundingClientRect();
+
+      return {
+        text: selectedText,
+        path: propsRef.current.activeFile,
+        range: {
+          startLineNumber: selection.startLineNumber,
+          startColumn: selection.startColumn,
+          endLineNumber: selection.endLineNumber,
+          endColumn: selection.endColumn,
+        },
+        anchor: coords && editorRect
+          ? {
+              x: editorRect.left + coords.left,
+              y: editorRect.top + coords.top + coords.height,
+            }
+          : null,
+      };
+    };
+
     editor.addAction({
       id: "run-selection-in-new-terminal",
       label: "Run In New Terminal",
@@ -595,6 +694,20 @@ const CodeEditor = forwardRef(function CodeEditor({
             endColumn: selection.endColumn,
           },
         });
+      },
+    });
+
+    editor.addAction({
+      id: "inline-ai-edit-selection",
+      label: "Inline AI Edit Selection",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
+      contextMenuGroupId: "1_modification",
+      contextMenuOrder: 2,
+      precondition: "editorHasSelection",
+      run: () => {
+        const payload = getCurrentSelectionPayload();
+        if (!payload) return;
+        propsRef.current.onInlineAiEditRequest?.(payload);
       },
     });
 
