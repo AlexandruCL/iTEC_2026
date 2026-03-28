@@ -169,14 +169,12 @@ export default function Session() {
     // We ALWAYS need to join the collaboration channel for presence
     joinCollaboration(sessionId, user);
 
-    // Only fetch session data from DB if we don't already have it
-    const store = useSessionStore.getState();
-    if (store.currentSession?.id !== sessionId) {
-      joinSession(sessionId).catch(() => {
-        toast.error("Failed to join session");
-        navigate("/dashboard");
-      });
-    }
+    // ALWAYS fetch the latest session data from DB when initially entering
+    // the route to ensure we have any changes made while we were offline/in dashboard.
+    joinSession(sessionId).catch(() => {
+      toast.error("Failed to join session");
+      navigate("/dashboard");
+    });
 
     return () => {
       leaveCollaboration();
