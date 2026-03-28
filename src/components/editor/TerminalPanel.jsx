@@ -164,10 +164,15 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const socketsRef = useRef(new Map());
   const suppressNextBroadcastRef = useRef(false);
   const terminalsRef = useRef([]);
+  const activeTerminalIdRef = useRef(null);
 
   useEffect(() => {
     terminalsRef.current = terminals;
   }, [terminals]);
+
+  useEffect(() => {
+    activeTerminalIdRef.current = activeTerminalId;
+  }, [activeTerminalId]);
 
   const displayName =
     user?.user_metadata?.display_name ||
@@ -231,7 +236,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         if (shouldBroadcast && user?.id) {
           broadcastTerminalSnapshot(user.id, {
             terminals: next,
-            activeTerminalId,
+            activeTerminalId: activeTerminalIdRef.current,
             updatedAt: Date.now(),
           });
         }
@@ -239,7 +244,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         return next;
       });
     },
-    [activeTerminalId, broadcastTerminalSnapshot, user?.id],
+    [broadcastTerminalSnapshot, user?.id],
   );
 
   const addLines = useCallback(
@@ -492,8 +497,10 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         (current) => ({
           ...current,
           isRunning: true,
+          retainLockAfterRun: true,
           lockOwnerId: user?.id || null,
           lockOwnerName: displayName,
+          lastHeartbeatAt: Date.now(),
         }),
         true,
       );
@@ -655,8 +662,18 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                 ...current,
                 isRunning: false,
                 activeExecutionId: null,
-                lockOwnerId: current.isRunning ? null : current.lockOwnerId,
-                lockOwnerName: current.isRunning ? null : current.lockOwnerName,
+                lockOwnerId:
+                  current.retainLockAfterRun
+                    ? current.lockOwnerId
+                    : current.isRunning
+                      ? null
+                      : current.lockOwnerId,
+                lockOwnerName:
+                  current.retainLockAfterRun
+                    ? current.lockOwnerName
+                    : current.isRunning
+                      ? null
+                      : current.lockOwnerName,
               }),
               true,
             );
@@ -1049,11 +1066,33 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     setOnTerminalSnapshot((snapshot) => {
       if (!snapshot || !Array.isArray(snapshot.terminals)) return;
 
+      const normalizedTerminals = snapshot.terminals.map(normalizeTerminal);
+
       suppressNextBroadcastRef.current = true;
-      setTerminals(snapshot.terminals.map(normalizeTerminal));
-      setActiveTerminalId(
-        snapshot.activeTerminalId || snapshot.terminals[0]?.id || null,
-      );
+      setTerminals(normalizedTerminals);
+      setActiveTerminalId((currentActiveId) => {
+        if (normalizedTerminals.length === 0) {
+          return null;
+        }
+
+        if (
+          currentActiveId &&
+          normalizedTerminals.some((terminal) => terminal.id === currentActiveId)
+        ) {
+          return currentActiveId;
+        }
+
+        if (
+          snapshot.activeTerminalId &&
+          normalizedTerminals.some(
+            (terminal) => terminal.id === snapshot.activeTerminalId,
+          )
+        ) {
+          return snapshot.activeTerminalId;
+        }
+
+        return normalizedTerminals[0].id;
+      });
     });
 
     return () => {
@@ -1339,13 +1378,6 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                       key={terminal.id}
                       onClick={() => {
                         setActiveTerminalId(terminal.id);
-                        if (user?.id) {
-                          broadcastTerminalSnapshot(user.id, {
-                            terminals,
-                            activeTerminalId: terminal.id,
-                            updatedAt: Date.now(),
-                          });
-                        }
                       }}
                       className={`px-2 py-1 rounded text-xs border transition-colors whitespace-nowrap ${
                         isActive
