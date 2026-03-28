@@ -1252,7 +1252,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
         return;
       }
 
-      const target = terminalsRef.current.find((t) => t.id === payload.terminalId);
+      const target = terminalsRef.current.find(
+        (t) => t.id === payload.terminalId,
+      );
       if (!target) return;
 
       const stale = isLockStale(target);
@@ -1517,8 +1519,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
                 {terminals.map((terminal) => {
                   const isActive = terminal.id === activeTerminalId;
-                  const lockedByOther =
-                    !!terminal.lockOwnerId && terminal.lockOwnerId !== user?.id;
+                  const lockedByOther = !!terminal.lockOwnerId;
                   const isSnippetTerminal = !!terminal.isSnippetTerminal;
                   const lockOwnerDisplayName = terminal.lockOwnerId
                     ? collaboratorNameById.get(terminal.lockOwnerId) ||
