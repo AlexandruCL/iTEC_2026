@@ -440,6 +440,8 @@ const CodeEditor = forwardRef(function CodeEditor({
 
     editor.onDidChangeCursorPosition(() => {
       if (isRemoteRef.current) return;
+      if (!editor.hasWidgetFocus()) return; // Prevent focus-stealing when typing elsewhere
+
       const currentUser = useAuthStore.getState().user;
       if (!currentUser) return;
 
