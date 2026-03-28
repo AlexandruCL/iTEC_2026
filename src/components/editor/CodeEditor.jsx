@@ -639,8 +639,16 @@ const CodeEditor = forwardRef(function CodeEditor({
   useEffect(() => {
     const editor = editorRef.current;
     if (editor && activeFile && modelsRef.current[activeFile]) {
-      editor.setModel(modelsRef.current[activeFile]);
-      editor.focus();
+      if (editor.getModel() !== modelsRef.current[activeFile]) {
+        editor.setModel(modelsRef.current[activeFile]);
+        editor.focus();
+      }
+    }
+  }, [activeFile]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor && activeFile && modelsRef.current[activeFile]) {
       updateRemoteCursors();
       updateLockDecorations();
       updateCursorNameOverlays();
