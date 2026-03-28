@@ -140,3 +140,73 @@ CREATE POLICY "Owners can delete own sessions"
 
 -- Index for faster queries
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON public.sessions(user_id);
+
+
+-- =============================================
+-- 3. SESSION TIMELINE (Time-Travel Debugging)
+-- =============================================
+CREATE TABLE IF NOT EXISTS public.session_timeline_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID REFERENCES public.sessions(id) ON DELETE CASCADE NOT NULL,
+  actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  event_type TEXT NOT NULL,
+  path TEXT,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.session_timeline_snapshots (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID REFERENCES public.sessions(id) ON DELETE CASCADE NOT NULL,
+  event_id BIGINT REFERENCES public.session_timeline_events(id) ON DELETE CASCADE,
+  fs JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.session_timeline_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.session_timeline_snapshots ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view timeline events" ON public.session_timeline_events;
+DROP POLICY IF EXISTS "Authenticated users can insert timeline events" ON public.session_timeline_events;
+DROP POLICY IF EXISTS "Authenticated users can view timeline snapshots" ON public.session_timeline_snapshots;
+DROP POLICY IF EXISTS "Authenticated users can insert timeline snapshots" ON public.session_timeline_snapshots;
+
+CREATE POLICY "Authenticated users can view timeline events"
+  ON public.session_timeline_events
+  FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can insert timeline events"
+  ON public.session_timeline_events
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = actor_user_id);
+
+CREATE POLICY "Authenticated users can view timeline snapshots"
+  ON public.session_timeline_snapshots
+  FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated users can insert timeline snapshots"
+  ON public.session_timeline_snapshots
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.session_timeline_events e
+      WHERE e.id = event_id
+        AND e.actor_user_id = auth.uid()
+    )
+  );
+
+CREATE INDEX IF NOT EXISTS idx_timeline_events_session_id_id
+  ON public.session_timeline_events(session_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_events_session_created
+  ON public.session_timeline_events(session_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_snapshots_session_event
+  ON public.session_timeline_snapshots(session_id, event_id);

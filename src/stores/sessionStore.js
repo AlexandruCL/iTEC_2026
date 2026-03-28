@@ -144,6 +144,59 @@ export const useSessionStore = create((set, get) => ({
       throw error;
     }
   },
+
+  appendTimelineEvent: async ({
+    sessionId,
+    actorUserId,
+    eventType,
+    path = null,
+    payload = {},
+  }) => {
+    if (!isSupabaseConfigured() || !supabase) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("session_timeline_events")
+        .insert({
+          session_id: sessionId,
+          actor_user_id: actorUserId,
+          event_type: eventType,
+          path,
+          payload,
+        })
+        .select("id, session_id, actor_user_id, event_type, path, payload, created_at")
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error("Failed to append timeline event:", error);
+      return null;
+    }
+  },
+
+  fetchTimelineEvents: async (sessionId, limit = 2500) => {
+    if (!isSupabaseConfigured() || !supabase) {
+      return [];
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("session_timeline_events")
+        .select("id, session_id, actor_user_id, event_type, path, payload, created_at")
+        .eq("session_id", sessionId)
+        .order("id", { ascending: true })
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error("Failed to fetch timeline events:", error);
+      return [];
+    }
+  },
 }));
 
 function getDefaultCode(language) {
