@@ -1652,7 +1652,7 @@ export default function Session() {
                       key={event.id}
                       id={`replay-btn-${absoluteIndex}`}
                       onClick={() => applyReplayEventAt(absoluteIndex)}
-                      className={`flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center p-2 rounded border transition-colors ${
+                      className={`flex-shrink-0 w-24 h-full py-2 px-1 flex flex-col items-center justify-center rounded border transition-colors ${
                         isSelected
                           ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
                           : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
@@ -1670,6 +1670,11 @@ export default function Session() {
                       >
                         {actorName}
                       </span>
+                      {event.created_at && (
+                        <span className="text-[8px] text-neutral-600 truncate w-full text-center mt-0.5" title={new Date(event.created_at).toLocaleString()}>
+                          {new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
