@@ -182,6 +182,19 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     user?.email?.split("@")[0] ||
     "Anonymous";
 
+  const collaboratorNameById = useMemo(() => {
+    const map = new Map();
+    collaborators.forEach((collaborator) => {
+      if (collaborator?.id && collaborator?.name) {
+        map.set(collaborator.id, collaborator.name);
+      }
+    });
+    if (user?.id) {
+      map.set(user.id, displayName);
+    }
+    return map;
+  }, [collaborators, displayName, user?.id]);
+
   const isRunnable = RUNNABLE_LANGUAGES.includes(language);
 
   const activeTerminal = useMemo(
@@ -1403,6 +1416,11 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                   const lockedByOther =
                     !!terminal.lockOwnerId && terminal.lockOwnerId !== user?.id;
                   const isSnippetTerminal = !!terminal.isSnippetTerminal;
+                  const lockOwnerDisplayName = terminal.lockOwnerId
+                    ? collaboratorNameById.get(terminal.lockOwnerId) ||
+                      terminal.lockOwnerName ||
+                      terminal.lockOwnerId
+                    : null;
 
                   return (
                     <button
@@ -1426,7 +1444,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                       {terminal.isRunning && (
                         <Loader2 className="w-3 h-3 inline ml-1 animate-spin text-accent-400" />
                       )}
-                      {lockedByOther && <Lock className="w-3 h-3 inline ml-1 text-amber-400" />}
+                      {lockedByOther && (
+                        <span className="ml-1 inline-flex items-center gap-1 align-middle text-amber-400">
+                          <Lock className="w-3 h-3" />
+                          <span className="text-[10px] max-w-[90px] truncate">
+                            {lockOwnerDisplayName}
+                          </span>
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1451,7 +1476,13 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               {activeTerminal?.lockOwnerId && (
                 <div className="hidden md:flex items-center gap-1.5 text-xs text-amber-400 px-2 py-1 rounded bg-amber-500/10 mr-1">
                   <Lock className="w-3 h-3" />
-                  <span>{activeTerminal.lockOwnerId === user?.id ? "You" : activeTerminal.lockOwnerName} locked</span>
+                  <span>
+                    {(activeTerminal.lockOwnerId === user?.id
+                      ? "You"
+                      : collaboratorNameById.get(activeTerminal.lockOwnerId) ||
+                        activeTerminal.lockOwnerName ||
+                        activeTerminal.lockOwnerId) + " locked"}
+                  </span>
                 </div>
               )}
 
@@ -1544,7 +1575,11 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     <>
                       <span className="text-neutral-700">•</span>
                       <span>
-                        lock {activeTerminal.lockOwnerId === user?.id ? "you" : activeTerminal.lockOwnerName || "collaborator"}
+                        lock {activeTerminal.lockOwnerId === user?.id
+                          ? "you"
+                          : collaboratorNameById.get(activeTerminal.lockOwnerId) ||
+                            activeTerminal.lockOwnerName ||
+                            activeTerminal.lockOwnerId}
                       </span>
                     </>
                   )}
@@ -1566,7 +1601,13 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
                 <div className="flex gap-2 items-center min-h-[1.5rem]">
                   <span className="w-[52px] flex-shrink-0" />
-                  <span className="text-accent-400 select-none">$</span>
+                  <span
+                    className={`select-none ${
+                      isLockedByOther ? "text-amber-400" : "text-accent-400"
+                    }`}
+                  >
+                    $
+                  </span>
                   <input
                     ref={inputRef}
                     type="text"
@@ -1581,15 +1622,19 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                         releaseLock(activeTerminal.id, false);
                       }
                     }}
-                    className="flex-1 bg-transparent border-none outline-none text-neutral-100 caret-accent-400 text-[13px] font-mono placeholder-neutral-600"
+                    className={`flex-1 bg-transparent border-none outline-none text-[13px] font-mono placeholder-neutral-600 ${
+                      isLockedByOther
+                        ? "text-neutral-500 caret-transparent cursor-not-allowed"
+                        : "text-neutral-100 caret-accent-400"
+                    }`}
                     placeholder={
                       isLockedByOther
-                        ? `locked by ${activeTerminal.lockOwnerName || "another collaborator"}`
+                        ? `locked by ${collaboratorNameById.get(activeTerminal.lockOwnerId) || activeTerminal.lockOwnerName || activeTerminal.lockOwnerId}`
                         : activeTerminal.isRunning
                           ? "type stdin and press Enter..."
                           : "type a command..."
                     }
-                    disabled={false}
+                    disabled={isLockedByOther}
                     spellCheck={false}
                     autoComplete="off"
                     autoCorrect="off"
