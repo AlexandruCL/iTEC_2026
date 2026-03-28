@@ -404,9 +404,10 @@ const CodeEditor = forwardRef(function CodeEditor({
       const newLine = position.lineNumber;
       const currentLocks = useCollaborationStore.getState().lockedLines;
 
+      const currentPath = propsRef.current.activeFile;
       let isLineLocked = false;
       for (const [uid, lock] of Object.entries(currentLocks)) {
-        if (uid !== currentUser.id && lock.lineNumber === newLine) {
+        if (uid !== currentUser.id && lock.path === currentPath && lock.lineNumber === newLine) {
           isLineLocked = true;
           break;
         }
@@ -426,7 +427,7 @@ const CodeEditor = forwardRef(function CodeEditor({
             for (let i = totalLines; i >= 1; i--) {
               let lineFree = true;
               for (const [uid, lock] of Object.entries(currentLocks)) {
-                if (uid !== currentUser.id && lock.lineNumber === i) {
+                if (uid !== currentUser.id && lock.path === currentPath && lock.lineNumber === i) {
                   lineFree = false;
                   break;
                 }
