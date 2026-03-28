@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
+import JSZip from "jszip";
 import {
   ArrowLeft,
   Users,
@@ -32,6 +33,7 @@ import SearchPanel from "@/components/editor/SearchPanel";
 import TerminalPanel from "@/components/editor/TerminalPanel";
 import AiChat from "@/components/ai/AiChat";
 import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import toast, { Toaster } from "react-hot-toast";
 
 const LANGUAGE_ICONS = {
@@ -80,9 +82,19 @@ export default function Session() {
   const [activeFile, setActiveFile] = useState(null);
   const [openFiles, setOpenFiles] = useState([]);
   const [navigationTarget, setNavigationTarget] = useState(null);
+  const [isUploadSourceModalOpen, setIsUploadSourceModalOpen] = useState(false);
+  const [isHiddenFilesModalOpen, setIsHiddenFilesModalOpen] = useState(false);
+  const [pendingTransfer, setPendingTransfer] = useState(null);
+  const [decisionJoke, setDecisionJoke] = useState({
+    open: false,
+    title: "",
+    line: "",
+  });
 
   const editorRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const filesInputRef = useRef(null);
+  const folderInputRef = useRef(null);
 
   // AI Agent: insert accepted code at the user's cursor position
   const handleApplyAiCode = (code) => {
@@ -236,6 +248,346 @@ export default function Session() {
     setFileSystem(newFs);
     useCollaborationStore.getState().broadcastFileSystemChange(user.id, newFs);
     useSessionStore.getState().updateSessionFileSystem(sessionId, newFs);
+  };
+
+  const isHiddenPath = (path) => {
+    const parts = path.split("/").filter(Boolean);
+    return parts.some((part) => part.startsWith("."));
+  };
+
+  const getDescriptorPath = (descriptor) => {
+    return (
+      descriptor?.relativePath ||
+      descriptor?.webkitRelativePath ||
+      descriptor?.name ||
+      null
+    );
+  };
+
+  const asFileObject = (descriptor) => descriptor?.file || descriptor;
+
+  const normalizeImportedPath = (rawPath) => {
+    if (!rawPath || typeof rawPath !== "string") return null;
+    const cleaned = rawPath
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+/g, "/");
+
+    if (!cleaned) return null;
+
+    const parts = cleaned.split("/").filter(Boolean);
+    if (!parts.length) return null;
+    if (parts.some((part) => part === "." || part === "..")) return null;
+    if (!parts.every((part) => isValidPathName(part))) return null;
+
+    return `/${parts.join("/")}`;
+  };
+
+  const removePathAndChildren = (fsMap, path) => {
+    Object.keys(fsMap).forEach((key) => {
+      if (key === path || key.startsWith(`${path}/`)) {
+        delete fsMap[key];
+      }
+    });
+  };
+
+  const ensureParentDirectories = (fsMap, filePath) => {
+    const parts = filePath.split("/").filter(Boolean);
+    let currentPath = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath += `/${parts[i]}`;
+      if (!fsMap[currentPath]) {
+        fsMap[currentPath] = { type: "directory" };
+      } else if (fsMap[currentPath].type !== "directory") {
+        removePathAndChildren(fsMap, currentPath);
+        fsMap[currentPath] = { type: "directory" };
+      }
+    }
+  };
+
+  const importFilesIntoSession = async (selectedFiles, { includeHidden = true } = {}) => {
+    if (!fileSystem) return;
+    if (!selectedFiles?.length) return;
+
+    const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
+    let totalBytes = 0;
+    let importedCount = 0;
+    let skippedCount = 0;
+    let overwrittenCount = 0;
+    const newFs = { ...fileSystem };
+
+    for (const descriptor of selectedFiles) {
+      const file = asFileObject(descriptor);
+      if (!file) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const candidatePath = getDescriptorPath(descriptor);
+      const normalizedPath = normalizeImportedPath(candidatePath);
+
+      if (!normalizedPath) {
+        skippedCount += 1;
+        continue;
+      }
+
+      if (!includeHidden && isHiddenPath(normalizedPath)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      totalBytes += file.size || 0;
+      if (totalBytes > MAX_IMPORT_BYTES) {
+        toast.error("Import too large. Keep it under 8MB per upload.");
+        break;
+      }
+
+      let content = "";
+      try {
+        content = await file.text();
+      } catch {
+        skippedCount += 1;
+        continue;
+      }
+
+      ensureParentDirectories(newFs, normalizedPath);
+
+      const existed = !!newFs[normalizedPath];
+      if (newFs[normalizedPath]?.type === "directory") {
+        removePathAndChildren(newFs, normalizedPath);
+      }
+
+      newFs[normalizedPath] = { type: "file", content };
+      importedCount += 1;
+      if (existed) overwrittenCount += 1;
+    }
+
+    if (!importedCount && skippedCount) {
+      toast.error("No files were imported.");
+      return;
+    }
+
+    saveFsAndBroadcast(newFs);
+
+    if (importedCount > 0) {
+      const firstImported = Object.keys(newFs).find((path) => newFs[path]?.type === "file");
+      if (firstImported && !activeFile) {
+        setActiveFile(firstImported);
+        setOpenFiles((prev) => (prev.includes(firstImported) ? prev : [...prev, firstImported]));
+      }
+    }
+
+    const summary = [`Imported ${importedCount} file${importedCount === 1 ? "" : "s"}`];
+    if (overwrittenCount > 0) summary.push(`${overwrittenCount} overwritten`);
+    if (skippedCount > 0) summary.push(`${skippedCount} skipped`);
+    toast.success(summary.join(" • "));
+  };
+
+  const makeUploadDescriptorsFromInput = (files) => {
+    return Array.from(files || []).map((file) => ({
+      file,
+      relativePath: file.webkitRelativePath || file.name,
+      name: file.name,
+      size: file.size,
+    }));
+  };
+
+  const fileFromEntry = (entry) =>
+    new Promise((resolve, reject) => {
+      entry.file(resolve, reject);
+    });
+
+  const readDirectoryEntries = async (dirEntry) => {
+    const reader = dirEntry.createReader();
+    const entries = [];
+
+    // readEntries returns chunks, so we need to loop until empty.
+    while (true) {
+      const chunk = await new Promise((resolve, reject) => {
+        reader.readEntries(resolve, reject);
+      });
+
+      if (!chunk.length) break;
+      entries.push(...chunk);
+    }
+
+    return entries;
+  };
+
+  const flattenDroppedEntry = async (entry, parentPath = "") => {
+    if (!entry) return [];
+
+    if (entry.isFile) {
+      const file = await fileFromEntry(entry);
+      const currentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      return [
+        {
+          file,
+          relativePath: currentPath,
+          name: file.name,
+          size: file.size,
+        },
+      ];
+    }
+
+    if (entry.isDirectory) {
+      const currentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      const children = await readDirectoryEntries(entry);
+      const flattened = await Promise.all(
+        children.map((child) => flattenDroppedEntry(child, currentPath)),
+      );
+      return flattened.flat();
+    }
+
+    return [];
+  };
+
+  const extractDroppedUploadDescriptors = async (dropEvent) => {
+    const dt = dropEvent?.dataTransfer;
+    if (!dt) return [];
+
+    const items = Array.from(dt.items || []);
+    const entryItems = items
+      .map((item) => item.webkitGetAsEntry?.())
+      .filter(Boolean);
+
+    if (entryItems.length > 0) {
+      const flattened = await Promise.all(
+        entryItems.map((entry) => flattenDroppedEntry(entry)),
+      );
+      return flattened.flat();
+    }
+
+    return Array.from(dt.files || []).map((file) => ({
+      file,
+      relativePath: file.webkitRelativePath || file.name,
+      name: file.name,
+      size: file.size,
+    }));
+  };
+
+  const openHiddenFilesModal = (transferPayload) => {
+    setPendingTransfer(transferPayload);
+    setIsHiddenFilesModalOpen(true);
+  };
+
+  const handleUploadFilesSelected = (event) => {
+    const descriptors = makeUploadDescriptorsFromInput(event.target.files);
+    event.target.value = "";
+    setIsUploadSourceModalOpen(false);
+    if (!descriptors.length) return;
+    openHiddenFilesModal({ type: "upload", descriptors });
+  };
+
+  const handleUploadFolderSelected = (event) => {
+    const descriptors = makeUploadDescriptorsFromInput(event.target.files);
+    event.target.value = "";
+    setIsUploadSourceModalOpen(false);
+    if (!descriptors.length) return;
+    openHiddenFilesModal({ type: "upload", descriptors });
+  };
+
+  const handleUploadDrop = async (event) => {
+    const descriptors = await extractDroppedUploadDescriptors(event);
+    if (!descriptors.length) {
+      toast.error("Could not read dropped files.");
+      return;
+    }
+    openHiddenFilesModal({ type: "upload", descriptors });
+  };
+
+  const handleRequestUpload = () => {
+    setIsUploadSourceModalOpen(true);
+  };
+
+  const handleRequestDownload = () => {
+    openHiddenFilesModal({ type: "download" });
+  };
+
+  const openDecisionJoke = (includeHidden) => {
+    if (includeHidden) {
+      setDecisionJoke({
+        open: true,
+        title: "Dotfiles Approved",
+        line: "You included .env files. Bold move. Schrödinger's deployment now both works and breaks until CI observes it.",
+      });
+      return;
+    }
+
+    setDecisionJoke({
+      open: true,
+      title: "Stealth Mode Enabled",
+      line: "You skipped hidden files. Your code is clean, your secrets are safe, and one future teammate is still wondering where config went.",
+    });
+  };
+
+  const handleHiddenFilesDecision = async (includeHidden) => {
+    const transfer = pendingTransfer;
+    setIsHiddenFilesModalOpen(false);
+    setPendingTransfer(null);
+
+    if (!transfer) return;
+
+    openDecisionJoke(includeHidden);
+
+    if (transfer.type === "upload") {
+      await importFilesIntoSession(transfer.descriptors, { includeHidden });
+      return;
+    }
+
+    if (transfer.type === "download") {
+      await handleDownloadSession({ includeHidden });
+    }
+  };
+
+  const handleDownloadSession = async ({ includeHidden = true } = {}) => {
+    if (!fileSystem) return;
+
+    const zip = new JSZip();
+    let added = 0;
+
+    Object.entries(fileSystem).forEach(([path, node]) => {
+      if (path === "/") return;
+      if (!includeHidden && isHiddenPath(path)) return;
+
+      const relativePath = path.replace(/^\//, "");
+      if (!relativePath) return;
+
+      if (node.type === "directory") {
+        zip.folder(relativePath);
+        return;
+      }
+
+      if (node.type === "file") {
+        zip.file(relativePath, typeof node.content === "string" ? node.content : "");
+        added += 1;
+      }
+    });
+
+    if (!added) {
+      toast.error("No files available to download.");
+      return;
+    }
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const safeName = (currentSession?.name || "session")
+      .trim()
+      .replace(/[^a-zA-Z0-9-_]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "session";
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `${safeName}-${timestamp}.zip`;
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success(`Downloaded ${added} file${added === 1 ? "" : "s"} as ZIP`);
   };
 
   const isValidPathName = (name) => {
@@ -421,6 +773,23 @@ export default function Session() {
         }}
       />
 
+      <input
+        ref={filesInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleUploadFilesSelected}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        webkitdirectory="true"
+        directory="true"
+        multiple
+        className="hidden"
+        onChange={handleUploadFolderSelected}
+      />
+
       {/* Title Bar */}
       <header className="h-12 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between px-3 select-none flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -568,6 +937,9 @@ export default function Session() {
                       onRename={handleRename}
                       onDelete={handleDelete}
                       onMove={handleMove}
+                      onRequestUpload={handleRequestUpload}
+                      onRequestDownload={handleRequestDownload}
+                      onUploadDrop={handleUploadDrop}
                     />
                   </div>
                 )}
@@ -706,6 +1078,97 @@ export default function Session() {
           </span>
         </div>
       </footer>
+
+      <Modal
+        isOpen={isUploadSourceModalOpen}
+        onClose={() => setIsUploadSourceModalOpen(false)}
+        title="Choose Upload Source"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-neutral-300">
+            Import wizard online. Pick your loot source.
+          </p>
+          <div className="grid grid-cols-1 gap-2">
+            <Button
+              variant="secondary"
+              className="w-full justify-start"
+              onClick={() => filesInputRef.current?.click()}
+            >
+              Upload Files
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-full justify-start"
+              onClick={() => folderInputRef.current?.click()}
+            >
+              Upload Folder
+            </Button>
+          </div>
+          <p className="text-xs text-neutral-500">
+            Pro tip: you can also drag files or folders directly into Explorer.
+          </p>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isHiddenFilesModalOpen}
+        onClose={() => {
+          setIsHiddenFilesModalOpen(false);
+          setPendingTransfer(null);
+        }}
+        title="Hidden Files Protocol"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-neutral-300">
+            Include hidden files like <span className="font-mono text-accent-300">.env</span> and <span className="font-mono text-accent-300">.gitignore</span>?
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIsHiddenFilesModalOpen(false);
+                setPendingTransfer(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleHiddenFilesDecision(false)}
+            >
+              Skip Hidden Files
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => handleHiddenFilesDecision(true)}
+            >
+              Include Hidden Files
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={decisionJoke.open}
+        onClose={() => setDecisionJoke({ open: false, title: "", line: "" })}
+        title={decisionJoke.title}
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3 text-sm text-neutral-300 leading-relaxed">
+            {decisionJoke.line}
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => setDecisionJoke({ open: false, title: "", line: "" })}
+            >
+              Nice
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

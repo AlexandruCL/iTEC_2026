@@ -16,13 +16,13 @@ export default function Modal({ isOpen, onClose, title, children, className }) {
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
             onClick={onClose}
           />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className={cn(
-              "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50",
               "bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl",
               "w-full max-w-md p-7",
               className
@@ -39,6 +39,7 @@ export default function Modal({ isOpen, onClose, title, children, className }) {
             </div>
             <div>{children}</div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>
