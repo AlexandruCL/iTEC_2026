@@ -168,6 +168,8 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   const suppressNextBroadcastRef = useRef(false);
   const terminalsRef = useRef([]);
   const activeTerminalIdRef = useRef(null);
+  const isAuthoritativeHostRef = useRef(false);
+  const userIdRef = useRef(null);
 
   useEffect(() => {
     terminalsRef.current = terminals;
@@ -221,6 +223,14 @@ const TerminalPanel = forwardRef(function TerminalPanel(
   }, [collaborators, hostUserId, user?.id]);
 
   const isAuthoritativeHost = user?.id && resolvedHostId === user.id;
+
+  useEffect(() => {
+    isAuthoritativeHostRef.current = !!isAuthoritativeHost;
+  }, [isAuthoritativeHost]);
+
+  useEffect(() => {
+    userIdRef.current = user?.id || null;
+  }, [user?.id]);
 
   const isLockedByOther =
     !!activeTerminal?.lockOwnerId && activeTerminal.lockOwnerId !== user?.id;
@@ -1045,6 +1055,33 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     );
   }, [activeTerminal, canControlActiveTerminal, updateTerminal]);
 
+  const handleToggleLock = useCallback(() => {
+    if (!activeTerminal) return;
+
+    if (activeTerminal.lockOwnerId === user?.id) {
+      releaseLock(activeTerminal.id, true);
+      addLines(activeTerminal.id, [{ text: "Lock released", type: "system" }]);
+      return;
+    }
+
+    const outcome = acquireLock(activeTerminal.id);
+    if (outcome === "acquired") {
+      addLines(activeTerminal.id, [{ text: "Lock acquired", type: "system" }]);
+      return;
+    }
+
+    if (outcome === "requested") {
+      addLines(activeTerminal.id, [
+        { text: "Lock requested. Try again once granted.", type: "warn" },
+      ]);
+      return;
+    }
+
+    addLines(activeTerminal.id, [
+      { text: "Terminal is locked by another collaborator", type: "warn" },
+    ]);
+  }, [acquireLock, activeTerminal, addLines, releaseLock, user?.id]);
+
   const handleOutputClick = useCallback(() => {
     if (activeTerminal) {
       acquireLock(activeTerminal.id);
@@ -1146,11 +1183,15 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
   useEffect(() => {
     setOnTerminalLockRequest((payload) => {
-      if (!isAuthoritativeHost || !payload?.terminalId || !payload?.userId) {
+      if (
+        !isAuthoritativeHostRef.current ||
+        !payload?.terminalId ||
+        !payload?.userId
+      ) {
         return;
       }
 
-      const target = terminals.find((t) => t.id === payload.terminalId);
+      const target = terminalsRef.current.find((t) => t.id === payload.terminalId);
       if (!target) return;
 
       const stale = isLockStale(target);
@@ -1161,7 +1202,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
 
       if (!canGrant) {
         broadcastTerminalLockGrant({
-          userId: user?.id,
+          userId: userIdRef.current,
           toUserId: payload.userId,
           toUserName: payload.userName,
           terminalId: payload.terminalId,
@@ -1188,7 +1229,7 @@ const TerminalPanel = forwardRef(function TerminalPanel(
       );
 
       broadcastTerminalLockGrant({
-        userId: user?.id,
+        userId: userIdRef.current,
         toUserId: payload.userId,
         toUserName: payload.userName,
         terminalId: payload.terminalId,
@@ -1203,12 +1244,9 @@ const TerminalPanel = forwardRef(function TerminalPanel(
     };
   }, [
     broadcastTerminalLockGrant,
-    isAuthoritativeHost,
     isLockStale,
     setOnTerminalLockRequest,
-    terminals,
     updateTerminal,
-    user?.id,
   ]);
 
   useEffect(() => {
@@ -1510,12 +1548,20 @@ const TerminalPanel = forwardRef(function TerminalPanel(
               )}
 
               <button
-                onClick={() => activeTerminal && releaseLock(activeTerminal.id, true)}
-                disabled={!activeTerminal || activeTerminal.lockOwnerId !== user?.id}
+                onClick={handleToggleLock}
+                disabled={!activeTerminal || isLockedByOther}
                 className="p-1.5 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                title="Release lock"
+                title={
+                  activeTerminal?.lockOwnerId === user?.id
+                    ? "Unlock terminal"
+                    : "Lock terminal"
+                }
               >
-                <Unlock className="w-3 h-3" />
+                {activeTerminal?.lockOwnerId === user?.id ? (
+                  <Unlock className="w-3 h-3" />
+                ) : (
+                  <Lock className="w-3 h-3" />
+                )}
               </button>
 
               <button
@@ -1614,14 +1660,6 @@ const TerminalPanel = forwardRef(function TerminalPanel(
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    onFocus={() => {
-                      acquireLock(activeTerminal.id);
-                    }}
-                    onBlur={() => {
-                      if (!activeTerminal.isRunning) {
-                        releaseLock(activeTerminal.id, false);
-                      }
-                    }}
                     className={`flex-1 bg-transparent border-none outline-none text-[13px] font-mono placeholder-neutral-600 ${
                       isLockedByOther
                         ? "text-neutral-500 caret-transparent cursor-not-allowed"
