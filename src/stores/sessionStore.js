@@ -78,21 +78,34 @@ export const useSessionStore = create((set, get) => ({
     }
     set({ loading: true, error: null });
     try {
-      // Broadcast deletion via the collaboration channel that all users are subscribed to
+      // Broadcast deletion via both channels that users might be subscribed to
       try {
         const collabChannel = supabase.channel(`session:${sessionId}`);
+        const timelineChannel = supabase.channel(`timeline-events:${sessionId}`);
         await collabChannel.subscribe();
+        await timelineChannel.subscribe();
+
         await collabChannel.send({
           type: "broadcast",
           event: "session-deleted",
           payload: { sessionId },
         });
+        await timelineChannel.send({
+          type: "broadcast",
+          event: "session-deleted",
+          payload: { sessionId },
+        });
+
         // Give time for broadcast to reach all clients before deleting
         await new Promise((r) => setTimeout(r, 500));
         await collabChannel.unsubscribe();
+        await timelineChannel.unsubscribe();
       } catch (broadcastErr) {
         console.warn("Failed to broadcast session deletion:", broadcastErr);
       }
+
+      await supabase.from("session_timeline_events").delete().eq("session_id", sessionId);
+      await supabase.from("session_timeline_snapshots").delete().eq("session_id", sessionId);
 
       const { error } = await supabase
         .from("sessions")

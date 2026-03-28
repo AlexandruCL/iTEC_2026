@@ -566,14 +566,18 @@ export default function Session() {
           return [...prev, eventRow].sort((a, b) => a.id - b.id);
         });
       },
-    );
+    ).on("broadcast", { event: "session-deleted" }, () => {
+      toast.error("This session has been deleted by the owner");
+      leaveCollaboration();
+      navigate("/dashboard");
+    });
 
     timelineChannel.subscribe();
 
     return () => {
       supabase.removeChannel(timelineChannel);
     };
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, navigate, leaveCollaboration]);
 
   useEffect(() => {
     if (
@@ -767,21 +771,7 @@ export default function Session() {
     applyReplayEventAt(timelineEvents.length - 1);
   }, [isReplayViewer, replayIndex, timelineEvents]);
 
-  useEffect(() => {
-    if (!sessionId || !user || !isSupabaseConfigured()) return;
 
-    const channel = useCollaborationStore.getState().channel;
-    if (!channel) return;
-
-    const handleDeleted = () => {
-      toast.error("This session has been deleted by the owner");
-      leaveCollaboration();
-      navigate("/dashboard");
-    };
-
-    channel.on("broadcast", { event: "session-deleted" }, handleDeleted);
-    return () => {};
-  }, [sessionId, navigate, leaveCollaboration, collaborators, isReplayViewer]);
 
   useEffect(() => {
     if (isReplayViewer) return;
