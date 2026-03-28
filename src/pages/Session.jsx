@@ -166,18 +166,17 @@ export default function Session() {
   useEffect(() => {
     if (!sessionId || !user || !isSupabaseConfigured()) return;
 
-    // Don't re-join if we already have this session loaded
-    const store = useSessionStore.getState();
-    if (store.currentSession?.id === sessionId) return;
+    // We ALWAYS need to join the collaboration channel for presence
+    joinCollaboration(sessionId, user);
 
-    joinSession(sessionId)
-      .then(() => {
-        joinCollaboration(sessionId, user);
-      })
-      .catch(() => {
+    // Only fetch session data from DB if we don't already have it
+    const store = useSessionStore.getState();
+    if (store.currentSession?.id !== sessionId) {
+      joinSession(sessionId).catch(() => {
         toast.error("Failed to join session");
         navigate("/dashboard");
       });
+    }
 
     return () => {
       leaveCollaboration();
