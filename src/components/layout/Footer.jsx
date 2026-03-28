@@ -66,7 +66,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 pt-6 border-t border-neutral-800/50">
+        <div className="mt-7 pt-4 border-t border-neutral-800/50">
           <p className="text-xs text-neutral-600">
             &copy; {new Date().getFullYear()} iTECify. All rights reserved.
           </p>
