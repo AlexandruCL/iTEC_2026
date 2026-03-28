@@ -119,6 +119,7 @@ export function runSandboxedContainer({
 
   const args = [
     "run",
+    "-i",
     "--name",
     containerName,
     "--rm",
@@ -141,7 +142,7 @@ export function runSandboxedContainer({
   ];
 
   const child = spawn("docker", args, {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   let timedOut = false;
@@ -176,9 +177,17 @@ export function runSandboxedContainer({
     });
   });
 
+  const writeStdin = (input) => {
+    if (!child.stdin || child.stdin.destroyed || !child.stdin.writable) {
+      throw new Error("Process stdin is not writable");
+    }
+    child.stdin.write(input);
+  };
+
   return {
     containerName,
     result,
+    writeStdin,
   };
 }
 

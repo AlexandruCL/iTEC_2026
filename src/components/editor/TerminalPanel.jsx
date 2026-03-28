@@ -133,6 +133,35 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
     }
   }, [activeExecutionId, addLines]);
 
+  const sendRuntimeInput = useCallback(
+    async (input) => {
+      if (!activeExecutionId) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${BACKEND_URL}/v1/executions/${activeExecutionId}/input`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ input }),
+          },
+        );
+
+        const body = await response.json();
+        if (!response.ok || !body.accepted) {
+          throw new Error(body?.error || body?.reason || "stdin not accepted");
+        }
+
+        addLines([{ text: `> ${input}`, type: "input" }]);
+      } catch (error) {
+        addLines([{ text: `Failed to send input: ${error.message}`, type: "error" }]);
+      }
+    },
+    [activeExecutionId, addLines],
+  );
+
   const executeCode = useCallback(() => {
     if (!isRunnable) {
       addLines([
@@ -322,9 +351,14 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
     (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        handleCommand(inputValue);
+        if (isRunning) {
+          sendRuntimeInput(inputValue);
+        } else {
+          handleCommand(inputValue);
+        }
         setInputValue("");
       } else if (e.key === "ArrowUp") {
+        if (isRunning) return;
         e.preventDefault();
         if (commandHistory.length === 0) return;
         const newIndex =
@@ -334,6 +368,7 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
         setHistoryIndex(newIndex);
         setInputValue(commandHistory[newIndex]);
       } else if (e.key === "ArrowDown") {
+        if (isRunning) return;
         e.preventDefault();
         if (historyIndex === -1) return;
         const newIndex = historyIndex + 1;
@@ -365,6 +400,7 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
       isRunning,
       addLines,
       stopExecution,
+      sendRuntimeInput,
     ],
   );
 
@@ -539,8 +575,8 @@ export default function TerminalPanel({ language, code, isOpen, onToggle }) {
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="flex-1 bg-transparent border-none outline-none text-neutral-100 caret-accent-400 text-[13px] font-mono placeholder-neutral-600"
-                placeholder={isRunning ? "waiting..." : "type a command..."}
-                disabled={isRunning}
+                placeholder={isRunning ? "type stdin and press Enter..." : "type a command..."}
+                disabled={false}
                 spellCheck={false}
                 autoComplete="off"
                 autoCorrect="off"

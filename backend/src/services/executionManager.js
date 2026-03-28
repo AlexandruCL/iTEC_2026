@@ -126,6 +126,7 @@ export class ExecutionManager {
       nextSeq: 1,
       events: [],
       containerName: null,
+      runtime: null,
     };
 
     this.executions.set(executionId, execution);
@@ -267,12 +268,15 @@ export class ExecutionManager {
       });
 
       execution.containerName = runtime.containerName;
+      execution.runtime = runtime;
 
       const { code, timedOut } = await runtime.result;
       execution.exitCode = code;
       execution.timedOut = timedOut;
       execution.status = code === 0 && !timedOut ? "completed" : "failed";
       execution.endedAt = nowIso();
+      execution.runtime = null;
+      execution.containerName = null;
 
       this.emitEvent(executionId, {
         type: "run-ended",
@@ -287,6 +291,7 @@ export class ExecutionManager {
       execution.status = "failed";
       execution.endedAt = nowIso();
       execution.failureReason = error.message;
+      execution.runtime = null;
       this.emitEvent(executionId, {
         type: "system",
         stage: "failed",
@@ -313,6 +318,8 @@ export class ExecutionManager {
     execution.status = "stopped";
     execution.endedAt = nowIso();
     execution.failureReason = "Stopped by user";
+    execution.runtime = null;
+    execution.containerName = null;
     this.emitEvent(executionId, {
       type: "system",
       stage: "stopped",
@@ -320,5 +327,25 @@ export class ExecutionManager {
     });
 
     return { stopped: true };
+  }
+
+  async sendInput(executionId, input) {
+    const execution = this.executions.get(executionId);
+    if (!execution) {
+      throw new Error("Execution not found");
+    }
+
+    if (execution.status !== "running" || !execution.runtime) {
+      return { accepted: false, reason: "Execution is not running" };
+    }
+
+    execution.runtime.writeStdin(`${input}\n`);
+    this.emitEvent(executionId, {
+      type: "system",
+      stage: "running",
+      message: "stdin received",
+    });
+
+    return { accepted: true };
   }
 }

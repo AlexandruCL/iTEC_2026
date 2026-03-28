@@ -12,6 +12,10 @@ const createExecutionSchema = z.object({
   files: z.array(fileSchema).optional(),
 });
 
+const executionInputSchema = z.object({
+  input: z.string(),
+});
+
 export async function executionRoutes(fastify) {
   const manager = fastify.executionManager;
 
@@ -81,6 +85,28 @@ export async function executionRoutes(fastify) {
 
     try {
       const result = await manager.stopExecution(executionId);
+      return { executionId, ...result };
+    } catch (error) {
+      if (error.message === "Execution not found") {
+        return reply.code(404).send({ error: error.message });
+      }
+      return reply.code(500).send({ error: error.message });
+    }
+  });
+
+  fastify.post("/v1/executions/:executionId/input", async (request, reply) => {
+    const { executionId } = request.params;
+    const parsed = executionInputSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "Invalid request body",
+        details: parsed.error.issues,
+      });
+    }
+
+    try {
+      const result = await manager.sendInput(executionId, parsed.data.input);
       return { executionId, ...result };
     } catch (error) {
       if (error.message === "Execution not found") {
