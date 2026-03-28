@@ -1533,10 +1533,6 @@ export default function Session() {
                 onRunSelectionInNewTerminal={handleRunSelectionInNewTerminal}
                 onInlineAiEditRequest={openInlineEditFromSelection}
                 onContentChange={(changes, newContent) => {
-                  if (isReplayMode) {
-                    return;
-                  }
-
                   const newFs = {
                     ...fileSystem,
                     [activeFile]: {
@@ -1544,6 +1540,18 @@ export default function Session() {
                       content: newContent,
                     },
                   };
+
+                  // Keep live background collaboration updates while user is in replay mode.
+                  if (changes.length === 0) {
+                    setFileSystem(newFs);
+                    setEditorCode(newContent);
+                    return;
+                  }
+
+                  if (isReplayMode) {
+                    return;
+                  }
+
                   setFileSystem(newFs);
                   setEditorCode(newContent);
 

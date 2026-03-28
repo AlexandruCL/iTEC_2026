@@ -801,18 +801,33 @@ const CodeEditor = forwardRef(function CodeEditor({
       );
 
       fsPaths.forEach((path) => {
+        const nextContent =
+          typeof fileSystem[path]?.content === "string"
+            ? fileSystem[path].content
+            : "";
+
         if (!currentModels[path]) {
           const uri = monacoInst.Uri.file(path);
           let model = monacoInst.editor.getModel(uri);
           if (!model) {
             // Monaco will auto-detect language based on extension in URI
             model = monacoInst.editor.createModel(
-              fileSystem[path].content || "",
+              nextContent,
               undefined,
               uri,
             );
           }
           currentModels[path] = model;
+          return;
+        }
+
+        const existingModel = currentModels[path];
+        if (existingModel.getValue() !== nextContent) {
+          isRemoteRef.current = true;
+          existingModel.setValue(nextContent);
+          requestAnimationFrame(() => {
+            isRemoteRef.current = false;
+          });
         }
       });
 
@@ -935,6 +950,38 @@ const CodeEditor = forwardRef(function CodeEditor({
         const { onContentChange, activeFile: currentActive } = propsRef.current;
         if (path === currentActive && onContentChange) {
           onContentChange([], targetModel.getValue());
+        }
+
+        // Remote edits can shift this user's cursor line; rebroadcast lock/cursor to avoid stale line lock.
+        const editor = editorRef.current;
+        const currentUser = useAuthStore.getState().user;
+        const position = editor?.getPosition();
+        if (editor && currentUser && position) {
+          if (currentLineRef.current !== position.lineNumber) {
+            currentLineRef.current = position.lineNumber;
+            useCollaborationStore
+              .getState()
+              .broadcastLineLock(
+                currentUser.id,
+                path,
+                position.lineNumber,
+                currentUser.user_metadata?.display_name ||
+                  currentUser.email?.split("@")[0] ||
+                  "Anonymous",
+              );
+          }
+
+          useCollaborationStore
+            .getState()
+            .broadcastCursor(
+              currentUser.id,
+              path,
+              position.lineNumber,
+              position.column,
+              currentUser.user_metadata?.display_name ||
+                currentUser.email?.split("@")[0] ||
+                "Anonymous",
+            );
         }
       } catch (err) {
         console.error("Failed to apply remote edits:", err);
