@@ -1,6 +1,6 @@
-# CollabCode Platform
+# iTECify Platform
 
-CollabCode is a collaborative coding platform with real-time editing, secure code execution, and AI-assisted development.
+iTECify is a collaborative coding platform with real-time editing, secure code execution, and AI-assisted development.
 
 It is organized as a Vite + React frontend and a Fastify backend that executes user code inside constrained Docker sandboxes.
 
@@ -178,21 +178,21 @@ Frontend Docker image:
 Example frontend image build:
 
 ```bash
-docker build -t collabcode-frontend .
+docker build -t iTECify-frontend .
 ```
 
 Example frontend container run:
 
 ```bash
-docker run --rm -p 8080:80 collabcode-frontend
+docker run --rm -p 8080:80 iTECify-frontend
 ```
 
 Backend Docker image:
 
 ```bash
 cd backend
-docker build -t collabcode-backend .
-docker run --rm -p 10000:10000 collabcode-backend
+docker build -t iTECify-backend .
+docker run --rm -p 10000:10000 iTECify-backend
 ```
 
 ## Deployment Notes
